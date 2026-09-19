@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-19T11:36:35+08:00",
+  "generated_at": "2026-09-19T19:44:25+08:00",
   "source": {
     "label": "中科院分区表升级版 2025（官方平台停服前快照，文件校验固定）",
     "path": "中科院分区表及JCR原始数据文件/FQBJCR2025-UTF8.csv",
@@ -12,6 +12,8 @@
       "name": "Communications Earth & Environment",
       "source_name": "Communications Earth & Environment",
       "group": "顶刊",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.nature.com/commsenv/",
       "issns": [
         "2662-4435"
@@ -50,6 +52,8 @@
       "name": "Nature Communications",
       "source_name": "Nature Communications",
       "group": "顶刊",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.nature.com/ncomms/",
       "issns": [
         "2041-1723"
@@ -80,6 +84,8 @@
       "name": "Science Advances",
       "source_name": "Science Advances",
       "group": "顶刊",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.science.org/journal/sciadv",
       "issns": [
         "2375-2548"
@@ -110,6 +116,8 @@
       "name": "Acta Geotechnica",
       "source_name": "Acta Geotechnica",
       "group": "一区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://link.springer.com/journal/11440",
       "issns": [
         "1861-1125",
@@ -141,6 +149,8 @@
       "name": "Archives of Computational Methods in Engineering",
       "source_name": "ARCHIVES OF COMPUTATIONAL METHODS IN ENGINEERING",
       "group": "一区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://link.springer.com/journal/11831",
       "issns": [
         "1134-3060",
@@ -180,6 +190,8 @@
       "name": "Computer Methods in Applied Mechanics and Engineering",
       "source_name": "COMPUTER METHODS IN APPLIED MECHANICS AND ENGINEERING",
       "group": "一区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.sciencedirect.com/journal/computer-methods-in-applied-mechanics-and-engineering",
       "issns": [
         "0045-7825",
@@ -219,6 +231,8 @@
       "name": "Computer-Aided Civil and Infrastructure Engineering",
       "source_name": "COMPUTER-AIDED CIVIL AND INFRASTRUCTURE ENGINEERING",
       "group": "一区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://onlinelibrary.wiley.com/journal/14678667",
       "issns": [
         "1093-9687",
@@ -262,6 +276,8 @@
       "name": "Computers and Geotechnics",
       "source_name": "COMPUTERS AND GEOTECHNICS",
       "group": "一区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.sciencedirect.com/journal/computers-and-geotechnics",
       "issns": [
         "0266-352X",
@@ -301,6 +317,8 @@
       "name": "Engineering Applications of Artificial Intelligence",
       "source_name": "ENGINEERING APPLICATIONS OF ARTIFICIAL INTELLIGENCE",
       "group": "一区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.sciencedirect.com/journal/engineering-applications-of-artificial-intelligence",
       "issns": [
         "0952-1976",
@@ -344,6 +362,8 @@
       "name": "Engineering Applications of Computational Fluid Mechanics",
       "source_name": "Engineering Applications of Computational Fluid Mechanics",
       "group": "一区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.tandfonline.com/journals/tcfm20",
       "issns": [
         "1994-2060",
@@ -383,6 +403,8 @@
       "name": "International Journal of Mechanical Sciences",
       "source_name": "INTERNATIONAL JOURNAL OF MECHANICAL SCIENCES",
       "group": "一区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.sciencedirect.com/journal/international-journal-of-mechanical-sciences",
       "issns": [
         "0020-7403",
@@ -418,6 +440,8 @@
       "name": "International Journal of Mining Science and Technology",
       "source_name": "International Journal of Mining Science and Technology",
       "group": "一区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.sciencedirect.com/journal/international-journal-of-mining-science-and-technology",
       "issns": [
         "2095-2686",
@@ -449,6 +473,8 @@
       "name": "Journal of Advanced Research",
       "source_name": "Journal of Advanced Research",
       "group": "一区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.sciencedirect.com/journal/journal-of-advanced-research",
       "issns": [
         "2090-1232",
@@ -480,6 +506,8 @@
       "name": "Journal of Earth Science",
       "source_name": "Journal of Earth Science",
       "group": "一区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://link.springer.com/journal/12583",
       "issns": [
         "1674-487X",
@@ -511,6 +539,8 @@
       "name": "Science China Technological Sciences",
       "source_name": "Science China-Technological Sciences",
       "group": "一区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://link.springer.com/journal/11431",
       "issns": [
         "1674-7321",
@@ -546,6 +576,8 @@
       "name": "ACM Transactions on Mathematical Software",
       "source_name": "ACM TRANSACTIONS ON MATHEMATICAL SOFTWARE",
       "group": "二区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://dl.acm.org/journal/toms",
       "issns": [
         "0098-3500",
@@ -581,6 +613,8 @@
       "name": "Applied Mathematical Modelling",
       "source_name": "APPLIED MATHEMATICAL MODELLING",
       "group": "二区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.sciencedirect.com/journal/applied-mathematical-modelling",
       "issns": [
         "0307-904X",
@@ -620,6 +654,8 @@
       "name": "Applied Mathematics and Computation",
       "source_name": "APPLIED MATHEMATICS AND COMPUTATION",
       "group": "二区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.sciencedirect.com/journal/applied-mathematics-and-computation",
       "issns": [
         "0096-3003",
@@ -651,6 +687,8 @@
       "name": "Communications in Nonlinear Science and Numerical Simulation",
       "source_name": "Communications in Nonlinear Science and Numerical Simulation",
       "group": "二区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.sciencedirect.com/journal/communications-in-nonlinear-science-and-numerical-simulation",
       "issns": [
         "1007-5704",
@@ -698,6 +736,8 @@
       "name": "Computational Mechanics",
       "source_name": "COMPUTATIONAL MECHANICS",
       "group": "二区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://link.springer.com/journal/466",
       "issns": [
         "0178-7675",
@@ -733,6 +773,8 @@
       "name": "Computer Physics Communications",
       "source_name": "COMPUTER PHYSICS COMMUNICATIONS",
       "group": "二区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.sciencedirect.com/journal/computer-physics-communications",
       "issns": [
         "0010-4655",
@@ -768,6 +810,8 @@
       "name": "Computers & Structures",
       "source_name": "COMPUTERS & STRUCTURES",
       "group": "二区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.sciencedirect.com/journal/computers-and-structures",
       "issns": [
         "0045-7949",
@@ -803,6 +847,8 @@
       "name": "Engineering Analysis with Boundary Elements",
       "source_name": "ENGINEERING ANALYSIS WITH BOUNDARY ELEMENTS",
       "group": "二区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.sciencedirect.com/journal/engineering-analysis-with-boundary-elements",
       "issns": [
         "0955-7997",
@@ -838,6 +884,8 @@
       "name": "Engineering with Computers",
       "source_name": "ENGINEERING WITH COMPUTERS",
       "group": "二区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://link.springer.com/journal/366",
       "issns": [
         "0177-0667",
@@ -873,6 +921,8 @@
       "name": "Future Generation Computer Systems",
       "source_name": "Future Generation Computer Systems-The International Journal of eScience",
       "group": "二区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.sciencedirect.com/journal/future-generation-computer-systems",
       "issns": [
         "0167-739X",
@@ -904,6 +954,8 @@
       "name": "IEEE Transactions on Computers",
       "source_name": "IEEE TRANSACTIONS ON COMPUTERS",
       "group": "二区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.computer.org/csdl/journal/tc",
       "issns": [
         "0018-9340",
@@ -939,6 +991,8 @@
       "name": "International Journal of Disaster Risk Science",
       "source_name": "International Journal of Disaster Risk Science",
       "group": "二区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://link.springer.com/journal/13753",
       "issns": [
         "2095-0055",
@@ -978,6 +1032,8 @@
       "name": "Journal of Computational Physics",
       "source_name": "JOURNAL OF COMPUTATIONAL PHYSICS",
       "group": "二区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.sciencedirect.com/journal/journal-of-computational-physics",
       "issns": [
         "0021-9991",
@@ -1013,6 +1069,8 @@
       "name": "Journal of the Mechanics and Physics of Solids",
       "source_name": "JOURNAL OF THE MECHANICS AND PHYSICS OF SOLIDS",
       "group": "二区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.sciencedirect.com/journal/journal-of-the-mechanics-and-physics-of-solids",
       "issns": [
         "0022-5096",
@@ -1052,6 +1110,8 @@
       "name": "Mathematics and Computers in Simulation",
       "source_name": "MATHEMATICS AND COMPUTERS IN SIMULATION",
       "group": "二区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.sciencedirect.com/journal/mathematics-and-computers-in-simulation",
       "issns": [
         "0378-4754",
@@ -1091,6 +1151,8 @@
       "name": "Powder Technology",
       "source_name": "POWDER TECHNOLOGY",
       "group": "二区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.sciencedirect.com/journal/powder-technology",
       "issns": [
         "0032-5910",
@@ -1122,6 +1184,8 @@
       "name": "Results in Engineering",
       "source_name": "Results in Engineering",
       "group": "二区",
+      "origin": "default",
+      "added_at": null,
       "url": "https://www.sciencedirect.com/journal/results-in-engineering",
       "issns": [
         "2590-1230"

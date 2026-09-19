@@ -1,23 +1,18 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import csv
-import io
 import json
 import sys
 from pathlib import Path
 
 from common import DATA_DIR, ROOT, file_sha256, git_blob_sha, iso_now, slugify, write_json
+from journal_config import ensure_config, normalized
 
 # 本地归档的官方快照（随仓库保存，按 git blob 校验值锁定版本）
 LOCAL_SNAPSHOT = ROOT / "scripts" / "snapshot" / "FQBJCR2025-UTF8.csv"
 EXPECTED_BLOB = "5918c4ee712878e2b6bc2e5d50f7a87b3c67a719"
 SOURCE_PATH = "中科院分区表及JCR原始数据文件/FQBJCR2025-UTF8.csv"
 SOURCE_LABEL = "中科院分区表升级版 2025（官方平台停服前快照，文件校验固定）"
-
-
-def normalized(value: str) -> str:
-    return "".join(character for character in value.lower().replace("&", "and") if character.isalnum())
 
 
 def load_source(source_file: Path | None) -> bytes:
@@ -34,6 +29,9 @@ def main() -> int:
     if actual_blob != EXPECTED_BLOB:
         raise SystemExit(f"ShowJCR blob mismatch: expected {EXPECTED_BLOB}, got {actual_blob}")
 
+    import csv
+    import io
+
     rows = list(csv.DictReader(io.StringIO(content.decode("utf-8-sig"))))
     by_name = {normalized(row["Journal"]): row for row in rows}
     aliases = {
@@ -41,7 +39,7 @@ def main() -> int:
             "Future Generation Computer Systems-The International Journal of eScience"
         )
     }
-    config = json.loads((ROOT / "journal.json").read_text(encoding="utf-8"))
+    config = ensure_config()
     journals = []
     missing = []
     for group, entries in config["categories"].items():
@@ -65,6 +63,8 @@ def main() -> int:
                     "name": entry["name"],
                     "source_name": row["Journal"],
                     "group": group,
+                    "origin": entry.get("origin", "default"),
+                    "added_at": entry.get("added_at"),
                     "url": entry["url"],
                     "issns": list(dict.fromkeys(issns)),
                     "cas": {
@@ -79,7 +79,7 @@ def main() -> int:
                         "value": entry.get("if"),
                         "year": entry.get("if_year"),
                         "status": "seeded_unverified",
-                        "source_url": entry["url"],
+                        "source_url": entry.get("metric_url") or entry["url"],
                         "checked_at": None,
                     },
                 }

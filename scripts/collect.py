@@ -290,11 +290,14 @@ def gather_for_journal(
     raise RuntimeError("; ".join(errors))
 
 
-def collect(mode: str, target: date) -> int:
+def collect(mode: str, target: date, journal_id: str | None = None) -> int:
     journal_data = read_json(DATA_DIR / "journals.json")
     if not journal_data:
         raise SystemExit("data/journals.json is missing; run scripts/sync_cas.py first")
-    journals = journal_data["journals"]
+    all_journals = journal_data["journals"]
+    journals = [journal for journal in all_journals if not journal_id or journal["id"] == journal_id]
+    if journal_id and not journals:
+        raise SystemExit(f"Unknown journal id: {journal_id}")
     existing, locations = load_existing()
     statuses = read_json(DATA_DIR / "collection-status.json", {})
     initializing = not bool(statuses)
@@ -383,7 +386,7 @@ def collect(mode: str, target: date) -> int:
     write_json(DATA_DIR / "supplements.json", supplements)
     write_json(DATA_DIR / "collection-status.json", statuses)
     prune(target)
-    save_manifest(journals, target)
+    save_manifest(all_journals, target)
     print(f"Collection complete: mode={mode}, target={target.isoformat()}")
     return 0
 
@@ -392,6 +395,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("daily", "backfill"), default="daily")
     parser.add_argument("--date", help="Business date in YYYY-MM-DD; defaults to yesterday in Beijing")
+    parser.add_argument("--journal-id", help="Only collect one journal; used after adding a journal")
     return parser.parse_args()
 
 
@@ -399,4 +403,4 @@ if __name__ == "__main__":
     args = parse_args()
     default_target = now_beijing().date() - timedelta(days=1)
     selected = date.fromisoformat(args.date) if args.date else default_target
-    raise SystemExit(collect(args.mode, selected))
+    raise SystemExit(collect(args.mode, selected, args.journal_id))

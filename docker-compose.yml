@@ -18,6 +18,7 @@ services:
       - ./assets:/usr/share/nginx/html/assets:ro
     depends_on:
       - archive-api
+      - journal-manager
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
       interval: 30s
@@ -50,6 +51,37 @@ services:
       retries: 3
       start_period: 5s
 
+  journal-manager:
+    image: paper-tracker-tasks:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.tasks
+    container_name: paper-tracker-manager
+    restart: unless-stopped
+    user: "${PAPER_TRACKER_UID:-1000}:${PAPER_TRACKER_GID:-1000}"
+    command: ["python3", "scripts/journal_manager.py"]
+    environment:
+      - TZ=Asia/Shanghai
+      - PAPER_TRACKER_DATA_DIR=/app/data
+      - PAPER_TRACKER_JOURNAL_CONFIG=/app/data/journal-config.json
+      - ARCHIVE_API_URL=http://archive-api:8080/api/archive
+      - MANAGER_PORT=8090
+      - CROSSREF_MAILTO=${CROSSREF_MAILTO:-}
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-}
+    volumes:
+      - ${PAPER_TRACKER_DATA_DIR:-./data}:/app/data
+    depends_on:
+      archive-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8090/api/admin/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
   tasks:
     image: paper-tracker-tasks:latest
     build:
@@ -60,6 +92,7 @@ services:
     environment:
       - TZ=Asia/Shanghai
       - PAPER_TRACKER_DATA_DIR=/app/data
+      - PAPER_TRACKER_JOURNAL_CONFIG=/app/data/journal-config.json
       - CROSSREF_MAILTO=${CROSSREF_MAILTO:-}
       - LLM_BASE_URL=${LLM_BASE_URL:-}
       - LLM_API_KEY=${LLM_API_KEY:-}

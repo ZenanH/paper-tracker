@@ -1,4 +1,5 @@
 const ARCHIVE_API = "api/archive";
+const ADMIN_API = "api/admin";
 
 const STORAGE_KEYS = {
   hiddenJournals: "paper-tracker-hidden-journals",
@@ -23,6 +24,8 @@ const state = {
   settingsGroups: {},
   archive: { items: {}, cleared_items: {}, updated_at: null },
   archiveSelection: new Set(),
+  admin: null,
+  adminWasRunning: false,
 };
 
 const elements = {
@@ -56,7 +59,15 @@ const elements = {
   settingsJournalSummary: document.querySelector("#settings-journal-summary"),
   settingsArchiveSummary: document.querySelector("#settings-archive-summary"),
   settingsRestoreArchive: document.querySelector("#settings-restore-archive"),
+  journalAdminSummary: document.querySelector("#journal-admin-summary"),
+  journalAdminStatus: document.querySelector("#journal-admin-status"),
+  journalAdminList: document.querySelector("#journal-admin-list"),
+  journalNameInput: document.querySelector("#journal-name-input"),
+  journalAddRun: document.querySelector("#journal-add-run"),
+  journalRunNow: document.querySelector("#journal-run-now"),
 };
+
+let adminPollTimer = null;
 
 const escapeHTML = (value = "") => String(value).replace(/[&<>'"]/g, (char) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
@@ -196,6 +207,128 @@ function updateSettingsArchiveUI() {
   elements.settingsArchiveSummary.textContent = count ? `${count} 篇已清空` : "没有已清空的归档";
   elements.settingsRestoreArchive.disabled = count === 0;
   elements.settingsRestoreArchive.textContent = count ? `恢复归档 (${count})` : "恢复归档";
+}
+
+function renderJournalAdmin() {
+  const payload = state.admin;
+  if (!payload) {
+    elements.journalAdminSummary.textContent = "管理服务暂不可用";
+    elements.journalAdminStatus.textContent = "无法读取期刊管理状态。";
+    elements.journalAdminList.replaceChildren();
+    elements.journalAddRun.disabled = true;
+    elements.journalRunNow.disabled = true;
+    return;
+  }
+  const journals = payload.journals || [];
+  const job = payload.job || {};
+  const running = job.status === "running";
+  const statusLabels = { idle: "空闲", running: "运行中", success: "上次运行成功", failed: "上次运行失败" };
+  elements.journalAdminSummary.textContent = `${journals.length} 本 · 每日 ${payload.schedule || "01:00"}（北京时间）`;
+  const nextRun = job.next_run ? `下次 ${formatDateTime(job.next_run)}` : "";
+  const jobMessage = job.message ? ` · ${job.message}` : "";
+  const latestLog = job.log?.length ? String(job.log[job.log.length - 1]).split("\n").pop() : "";
+  const logMessage = latestLog ? ` · ${latestLog}` : "";
+  elements.journalAdminStatus.classList.toggle("is-error", job.status === "failed");
+  elements.journalAdminStatus.innerHTML = `<strong>${escapeHTML(statusLabels[job.status] || "状态未知")}</strong><span>${escapeHTML(jobMessage.replace(/^ · /, ""))}${escapeHTML(logMessage)}${(jobMessage || logMessage) && nextRun ? " · " : ""}${escapeHTML(nextRun)}</span>`;
+  elements.journalAddRun.disabled = running;
+  elements.journalRunNow.disabled = running;
+  elements.journalNameInput.disabled = running;
+  elements.journalAdminList.innerHTML = journals.map((journal) => `
+    <div class="journal-admin-item">
+      <div>
+        <strong>${escapeHTML(journal.name)}</strong>
+        <span>${journal.origin === "user" ? "用户添加" : "镜像默认"} · ${escapeHTML(journal.group || "未分组")} · 中科院 ${escapeHTML(journal.cas?.zone ?? "-")} 区</span>
+      </div>
+      <button class="icon-button compact-icon-button" type="button" data-delete-journal="${escapeHTML(journal.id)}" data-journal-name="${escapeHTML(journal.name)}" title="删除期刊" aria-label="删除 ${escapeHTML(journal.name)}" ${running ? "disabled" : ""}>
+        <i data-lucide="trash-2"></i>
+      </button>
+    </div>`).join("");
+  renderIcons();
+}
+
+async function adminRequest(path, options = {}) {
+  const response = await fetch(`${ADMIN_API}${path}`, {
+    cache: "no-store",
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    ...options,
+  });
+  let payload = {};
+  try { payload = await response.json(); } catch (error) { /* Keep the status error below. */ }
+  if (!response.ok) throw new Error(payload.error || `服务返回 ${response.status}`);
+  return payload;
+}
+
+function scheduleAdminPoll() {
+  if (adminPollTimer) clearTimeout(adminPollTimer);
+  if (state.admin?.job?.status !== "running") return;
+  adminPollTimer = setTimeout(() => loadJournalAdmin(true), 2500);
+}
+
+async function loadJournalAdmin(fromPoll = false) {
+  try {
+    const payload = await adminRequest("/journals");
+    const wasRunning = state.adminWasRunning;
+    state.admin = payload;
+    state.adminWasRunning = payload.job?.status === "running";
+    renderJournalAdmin();
+    if (fromPoll && wasRunning && payload.job?.status === "success") {
+      window.location.reload();
+      return;
+    }
+    scheduleAdminPoll();
+  } catch (error) {
+    state.admin = null;
+    renderJournalAdmin();
+  }
+}
+
+async function addJournalAndRun() {
+  const name = elements.journalNameInput.value.trim();
+  if (!name) {
+    elements.journalNameInput.focus();
+    return;
+  }
+  elements.journalAddRun.disabled = true;
+  elements.journalAdminStatus.textContent = "正在匹配期刊信息…";
+  try {
+    state.admin = await adminRequest("/journals", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+    elements.journalNameInput.value = "";
+    state.adminWasRunning = true;
+    renderJournalAdmin();
+    scheduleAdminPoll();
+  } catch (error) {
+    elements.journalAdminStatus.classList.add("is-error");
+    elements.journalAdminStatus.textContent = `添加失败：${error.message}`;
+    elements.journalAddRun.disabled = false;
+  }
+}
+
+async function deleteJournal(journalId, journalName) {
+  if (!window.confirm(`确定删除「${journalName}」？该期刊的三个月论文、补录、归档状态及无引用翻译缓存都会删除。`)) return;
+  try {
+    state.admin = await adminRequest(`/journals/${encodeURIComponent(journalId)}`, { method: "DELETE" });
+    state.adminWasRunning = true;
+    renderJournalAdmin();
+    scheduleAdminPoll();
+  } catch (error) {
+    elements.journalAdminStatus.classList.add("is-error");
+    elements.journalAdminStatus.textContent = `删除失败：${error.message}`;
+  }
+}
+
+async function runDailyNow() {
+  try {
+    state.admin = await adminRequest("/run", { method: "POST", body: "{}" });
+    state.adminWasRunning = true;
+    renderJournalAdmin();
+    scheduleAdminPoll();
+  } catch (error) {
+    elements.journalAdminStatus.classList.add("is-error");
+    elements.journalAdminStatus.textContent = `运行失败：${error.message}`;
+  }
 }
 
 function renderSettings() {
@@ -750,6 +883,7 @@ function bindEvents() {
   document.querySelector("#settings-button").addEventListener("click", () => {
     renderSettings();
     elements.settingsDialog.showModal();
+    loadJournalAdmin();
   });
   document.querySelector("#close-settings").addEventListener("click", () => elements.settingsDialog.close());
   elements.settingsDialog.addEventListener("click", (event) => {
@@ -836,6 +970,15 @@ function bindEvents() {
   });
   elements.settingsRestoreArchive.addEventListener("click", () => {
     restoreClearedArchive(Object.keys(state.archive.cleared_items));
+  });
+  elements.journalAddRun.addEventListener("click", addJournalAndRun);
+  elements.journalNameInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") addJournalAndRun();
+  });
+  elements.journalRunNow.addEventListener("click", runDailyNow);
+  elements.journalAdminList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-delete-journal]");
+    if (button) deleteJournal(button.dataset.deleteJournal, button.dataset.journalName);
   });
   document.querySelectorAll("[data-theme-option]").forEach((button) => button.addEventListener("click", () => {
     setTheme(button.dataset.themeOption);

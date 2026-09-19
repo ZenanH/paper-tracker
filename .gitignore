@@ -5,6 +5,8 @@ __pycache__/
 .pytest_cache/
 .cache/
 .env
+data/journal-config.json
+data/task-status.json
 
 # 归档状态由服务写入；保留在版本库以便随每日提交留痕
 # （如需忽略，取消下一行注释）

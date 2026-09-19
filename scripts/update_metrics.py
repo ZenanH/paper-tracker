@@ -75,12 +75,15 @@ def update_journal(journal: dict[str, Any]) -> None:
     metric.pop("candidate_value", None)
 
 
-def main() -> int:
+def main(journal_id: str | None = None) -> int:
     path = DATA_DIR / "journals.json"
     payload = read_json(path)
     if not payload:
         raise SystemExit("data/journals.json is missing")
-    for journal in payload["journals"]:
+    journals = [journal for journal in payload["journals"] if not journal_id or journal["id"] == journal_id]
+    if journal_id and not journals:
+        raise SystemExit(f"Unknown journal id: {journal_id}")
+    for journal in journals:
         update_journal(journal)
         print(f"{journal['name']}: {journal['impact_factor']['status']}")
     payload["metrics_checked_at"] = iso_now()
@@ -89,4 +92,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--journal-id")
+    args = parser.parse_args()
+    raise SystemExit(main(args.journal_id))

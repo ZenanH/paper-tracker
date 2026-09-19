@@ -410,6 +410,30 @@ svg { width: 1.1rem; height: 1.1rem; stroke-width: 1.8; }
 .settings-journal-option strong { font-size: 0.76rem; line-height: 1.35; }
 .settings-journal-option small { margin-top: 0.12rem; color: var(--muted); font-size: 0.66rem; line-height: 1.35; }
 .theme-control { width: fit-content; max-width: 100%; }
+.settings-run-button { width: 34px; height: 34px; flex: 0 0 auto; }
+.journal-add-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.55rem; }
+.journal-name-field { min-width: 0; }
+.journal-name-field input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface);
+}
+.journal-name-field input::placeholder { color: var(--muted); }
+.journal-admin-status { min-height: 24px; margin-top: 0.6rem; color: var(--muted); font-size: 0.7rem; line-height: 1.45; }
+.journal-admin-status strong, .journal-admin-status span { display: inline; }
+.journal-admin-status strong { margin-right: 0.35rem; color: var(--ink); }
+.journal-admin-status.is-error, .journal-admin-status.is-error strong { color: var(--danger); }
+.journal-admin-list { max-height: 250px; margin-top: 0.35rem; overflow-y: auto; border-top: 1px solid var(--line); }
+.journal-admin-item { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.75rem; padding: 0.55rem 0.15rem; border-bottom: 1px solid var(--line-subtle); }
+.journal-admin-item strong, .journal-admin-item span { display: block; overflow-wrap: anywhere; }
+.journal-admin-item strong { font-size: 0.74rem; line-height: 1.35; }
+.journal-admin-item span { margin-top: 0.12rem; color: var(--muted); font-size: 0.64rem; }
+.compact-icon-button { width: 32px; height: 32px; }
+.compact-icon-button svg { width: 0.95rem; height: 0.95rem; }
 
 .site-footer { max-width: var(--content); margin: 0 auto; padding: 1.4rem 1.5rem 2rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.7rem; line-height: 1.5; }
 .site-footer p { margin: 0.2rem 0; }
@@ -443,6 +467,8 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
   .article-title-zh { font-size: 0.96rem; }
   .update-status { align-items: flex-start; }
   .settings-dialog { width: min(94vw, 620px); }
+  .journal-add-row { grid-template-columns: minmax(0, 1fr); }
+  .journal-add-row .text-button { grid-column: auto; }
 }
 
 @media (prefers-reduced-motion: reduce) {
