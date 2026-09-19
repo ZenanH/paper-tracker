@@ -453,27 +453,75 @@ function renderUpdateStatus(manifest) {
     <time datetime="${escapeHTML(timestamp || "")}">${escapeHTML(formatDateTime(timestamp))}</time>`;
 }
 
-async function postArchive(payload) {
-  const response = await fetch(ARCHIVE_API, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    cache: "no-store",
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    let detail = `HTTP ${response.status}`;
-    try {
-      const body = await response.json();
-      if (body && body.error) detail = body.error;
-    } catch (error) { /* 非 JSON 响应，保留状态码 */ }
-    throw new Error(detail);
-  }
-  return response.json();
+// 请求失败分类：请求本身有错（重试无意义）标 fatal，网络类失败可重试
+function fatalError(message) {
+  const error = new Error(message);
+  error.fatal = true;
+  return error;
 }
 
-function showError(message) {
+const ARCHIVE_TIMEOUT_MS = 20000;
+const ARCHIVE_ATTEMPTS = 2;
+
+async function postArchiveOnce(payload, body) {
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), ARCHIVE_TIMEOUT_MS) : null;
+  try {
+    const response = await fetch(ARCHIVE_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body,
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    if (response.ok) return response.json();
+    let detail = `服务返回 ${response.status}`;
+    try {
+      const parsed = await response.json();
+      if (parsed && parsed.error) detail = parsed.error;
+    } catch (error) { /* 非 JSON 响应，保留状态码 */ }
+    // 4xx 是请求/数据问题，重试没有意义
+    if (response.status < 500) throw fatalError(detail);
+    throw new Error(`${detail}（服务端错误，已重试）`);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function postArchive(payload) {
+  const body = JSON.stringify(payload);
+  let lastError = null;
+  for (let attempt = 1; attempt <= ARCHIVE_ATTEMPTS; attempt += 1) {
+    try {
+      return await postArchiveOnce(payload, body);
+    } catch (error) {
+      if (error && error.fatal) throw error;
+      lastError = error;
+      if (attempt < ARCHIVE_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, 700));
+    }
+  }
+  const reason = lastError && lastError.name === "AbortError"
+    ? `请求超时（${ARCHIVE_TIMEOUT_MS / 1000} 秒）`
+    : "网络连接失败";
+  throw new Error(`${reason}，已自动重试仍失败`);
+}
+
+let pendingRetry = null;
+
+function showError(message, retry) {
+  pendingRetry = typeof retry === "function" ? retry : null;
   elements.status.hidden = false;
-  elements.status.innerHTML = `<i data-lucide="triangle-alert"></i><span>${escapeHTML(message)}</span>`;
+  elements.status.innerHTML = `<i data-lucide="triangle-alert"></i><span>${escapeHTML(message)}</span>${pendingRetry ? '<button class="text-button compact-button" type="button" id="status-retry">重试</button>' : ""}`;
+  const button = elements.status.querySelector("#status-retry");
+  if (button && pendingRetry) {
+    button.addEventListener("click", () => {
+      const retry = pendingRetry;
+      elements.status.hidden = true;
+      elements.status.replaceChildren();
+      pendingRetry = null;
+      retry();
+    });
+  }
   renderIcons();
 }
 
@@ -495,7 +543,7 @@ async function loadArchive() {
 
 async function archiveArticles(articles) {
   const candidates = articles.filter((article) => article && article.id && !isArchived(article.id));
-  if (!candidates.length) return;
+  if (!candidates.length) return true;
   try {
     const data = await postArchive({
       action: "add",
@@ -511,25 +559,30 @@ async function archiveArticles(articles) {
     });
     state.archive = { items: data.items || {}, updated_at: data.updated_at || null };
   } catch (error) {
-    showError(`归档失败：${error.message}`);
-    return;
+    if (window.console && console.error) console.error("[paper-tracker] archive failed", error);
+    showError(`归档失败：${error.message}`, () => archiveArticles(articles));
+    return false;
   }
   updateArchiveCount();
   renderCurrent();
+  return true;
 }
 
 async function restoreArticles(ids) {
-  if (!ids.length) return;
+  if (!ids.length) return true;
+  const snapshot = [...ids];
   try {
     const data = await postArchive({ action: "remove", ids });
     state.archive = { items: data.items || {}, updated_at: data.updated_at || null };
   } catch (error) {
-    showError(`恢复失败：${error.message}`);
-    return;
+    if (window.console && console.error) console.error("[paper-tracker] restore failed", error);
+    showError(`恢复失败：${error.message}`, () => restoreArticles(snapshot));
+    return false;
   }
   ids.forEach((id) => state.archiveSelection.delete(id));
   updateArchiveCount();
   renderCurrent();
+  return true;
 }
 
 function bindEvents() {
@@ -557,7 +610,11 @@ function bindEvents() {
     if (target.dataset.archiveArticle) {
       const article = (state.day?.articles || []).find((item) => item.id === target.dataset.archiveArticle);
       if (target.checked && article) {
-        archiveArticles([article]);
+        target.disabled = true;
+        archiveArticles([article]).then((ok) => {
+          if (!ok) target.checked = false;
+          target.disabled = false;
+        });
       } else if (!target.checked) {
         target.checked = false;
       }
@@ -566,7 +623,13 @@ function bindEvents() {
     if (target.dataset.archiveJournal) {
       const journalId = target.dataset.archiveJournal;
       const articles = (state.day?.articles || []).filter((item) => item.journal_id === journalId && item.content_type === "article");
-      if (target.checked) archiveArticles(articles);
+      if (target.checked) {
+        target.disabled = true;
+        archiveArticles(articles).then((ok) => {
+          if (!ok) target.checked = false;
+          target.disabled = false;
+        });
+      }
       return;
     }
     if (target.dataset.archiveItem) {

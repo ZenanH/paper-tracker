@@ -1,1 +1,25 @@
-{"updated_at":null,"items":{}}
+{
+  "updated_at": "2026-09-19T13:57:56+08:00",
+  "items": {
+    "10.1007/s11440-026-03254-5": {
+      "id": "10.1007/s11440-026-03254-5",
+      "journal_id": "acta-geotechnica",
+      "date": "2026-09-18",
+      "title_en": "A DEM investigation into the nature of shear strength in bio-cemented grains",
+      "title_zh": "生物胶结颗粒剪切强度本质的离散元法（DEM）研究",
+      "url": "https://link.springer.com/10.1007/s11440-026-03254-5",
+      "doi": "10.1007/s11440-026-03254-5",
+      "archived_at": "2026-09-19T13:49:28+08:00"
+    },
+    "10.1007/s11440-026-03256-3": {
+      "id": "10.1007/s11440-026-03256-3",
+      "journal_id": "acta-geotechnica",
+      "date": "2026-09-18",
+      "title_en": "Debris-flow identification and early warning based on seismic observation records",
+      "title_zh": "基于地震观测记录的泥石流识别与早期预警",
+      "url": "https://link.springer.com/10.1007/s11440-026-03256-3",
+      "doi": "10.1007/s11440-026-03256-3",
+      "archived_at": "2026-09-19T13:49:29+08:00"
+    }
+  }
+}
