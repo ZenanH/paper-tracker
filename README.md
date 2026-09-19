@@ -2,7 +2,7 @@
 
 一个在本机自托管运行的个人论文日报。站点按北京时间展示目标期刊每日新上线的论文，并保留滚动三个自然月的历史记录。
 
-数据采集、翻译、指标检查全部在本机完成（Docker + systemd timer），不依赖任何外部 CI 服务。
+数据采集、翻译、指标检查全部在本机完成（Docker + systemd timer），运行不依赖外部 CI 服务。GitHub Actions 仅用于跨平台测试和 Docker 镜像构建发布。
 
 ## 本地预览
 
@@ -115,3 +115,21 @@ docker run -d --name paper-tracker --restart unless-stopped \
 ```bash
 docker build -t paper-tracker:latest . && docker restart paper-tracker
 ```
+
+## GitHub CI
+
+`.github/workflows/docker-ci.yml` 在每次提交和 Pull Request 时运行：
+
+- `ubuntu-latest`、`windows-latest`、`macos-latest`：执行 Python 语法检查、单元测试和静态数据校验。
+- `ubuntu-latest`：在三种系统测试全部通过后，构建站点与 `archive-api` 两个 Linux Docker 镜像。
+- 推送到 `main`：发布 `linux/amd64` 和 `linux/arm64` 多架构镜像到 GitHub Container Registry，并生成 `latest` 与 `sha-*` 标签。
+- Pull Request：只构建验证，不发布镜像。
+
+镜像地址：
+
+```text
+ghcr.io/zenanh/paper-tracker:latest
+ghcr.io/zenanh/paper-tracker-archive:latest
+```
+
+CI 使用仓库自带的 `GITHUB_TOKEN` 发布镜像，不需要配置 LLM 或 Crossref 凭据。
