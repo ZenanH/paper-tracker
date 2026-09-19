@@ -16,8 +16,33 @@ services:
       - ./journal.json:/usr/share/nginx/html/journal.json:ro
       - ./favicon.ico:/usr/share/nginx/html/favicon.ico:ro
       - ./assets:/usr/share/nginx/html/assets:ro
+    depends_on:
+      - archive-api
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # 「已归档」持久化服务：读写归档状态，不对外发布端口，仅供站点经 nginx 代理访问
+  archive-api:
+    image: paper-tracker-archive:latest
+    build:
+      context: ./server
+    container_name: paper-tracker-archive
+    restart: unless-stopped
+    # 以宿主用户身份运行，归档文件属主为 zhuo 而非 root
+    user: "1000:1000"
+    environment:
+      - TZ=Asia/Shanghai
+      - ARCHIVE_FILE=/archive/archive.json
+      - PORT=8080
+    volumes:
+      # 可写卷：归档状态独立于静态数据目录
+      - ./archive:/archive
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/healthz"]
       interval: 30s
       timeout: 3s
       retries: 3

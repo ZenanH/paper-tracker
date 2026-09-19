@@ -25,9 +25,9 @@
     <link rel="shortcut icon" href="assets/favicon.ico?v=c3cd5d7ef3" />
     <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=44ad171dcf" />
     <link rel="mask-icon" href="assets/favicon.svg?v=25b680167f" color="#0f766e" />
-    <link rel="stylesheet" href="assets/styles.css?v=a8c8f8bb0e" />
+    <link rel="stylesheet" href="assets/styles.css?v=7e2803ed19" />
     <script src="assets/vendor/lucide.min.js?v=3411692820" defer></script>
-    <script src="assets/app.js?v=e90688aea3" type="module"></script>
+    <script src="assets/app.js?v=70173f8ed2" type="module"></script>
   </head>
   <body>
     <a class="skip-link" href="#paper-list">跳到论文列表</a>
@@ -45,6 +45,10 @@
           <button class="view-tab" type="button" data-view="supplements">
             历史补录
             <span class="tab-count" id="supplement-count" hidden>0</span>
+          </button>
+          <button class="view-tab" type="button" data-view="archive">
+            已归档
+            <span class="tab-count" id="archive-count" hidden>0</span>
           </button>
         </nav>
         <div class="header-actions">
@@ -88,6 +92,20 @@
           <div class="segmented-control" role="tablist" aria-label="补录分类">
             <button class="is-active" type="button" role="tab" data-supplement="late_additions">迟到补录</button>
             <button type="button" role="tab" data-supplement="date_pending">日期待核实</button>
+          </div>
+        </div>
+
+        <div class="archive-toolbar" id="archive-toolbar" hidden>
+          <div>
+            <p class="eyebrow">已归档</p>
+            <h1>已读论文</h1>
+          </div>
+          <div class="archive-actions">
+            <span class="archive-selection" id="archive-selection">未选择</span>
+            <button class="text-button compact-button" id="archive-select-all" type="button">全选</button>
+            <button class="text-button compact-button" id="archive-none" type="button">清除选择</button>
+            <button class="text-button compact-button" id="archive-clear" type="button">清空归档</button>
+            <button class="text-button compact-button is-primary" id="archive-restore" type="button" disabled>恢复所选</button>
           </div>
         </div>
 

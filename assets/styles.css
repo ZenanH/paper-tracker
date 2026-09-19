@@ -233,6 +233,47 @@ svg { width: 1.1rem; height: 1.1rem; stroke-width: 1.8; }
 .content-heading p { margin: 0.5rem 0 0; color: var(--muted); font-size: 0.82rem; }
 
 .paper-list { outline: 0; }
+/* ===== 已归档 ===== */
+.archive-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.9rem;
+  padding: 0.6rem 0 1.1rem;
+  border-bottom: 1px solid var(--line);
+}
+.archive-toolbar h1 { margin: 0.25rem 0 0; font-size: 1.25rem; letter-spacing: 0; }
+.archive-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; }
+.archive-selection { margin-right: 0.3rem; color: var(--muted); font-size: 0.75rem; white-space: nowrap; }
+.text-button.is-primary { border-color: var(--accent); color: var(--accent-dark); background: var(--accent-soft); }
+.text-button.is-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+.text-button.is-primary:not(:disabled):hover { background: var(--accent); color: #fff; }
+
+/* 期刊头部右侧操作区 */
+.journal-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem; }
+.journal-check, .article-check { display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; user-select: none; }
+.journal-check span { color: var(--muted); font-size: 0.72rem; white-space: nowrap; }
+.journal-check input, .article-check input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.journal-check:hover span { color: var(--accent-dark); }
+
+/* 单篇：勾选框左置，正文右移 */
+.article-item.has-check { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.7rem; padding-left: 1.15rem; }
+.article-item.has-check::before { display: none; }
+.article-item.has-check .article-check { margin-top: 0.2rem; }
+.article-body { min-width: 0; }
+.article-item.has-check + .article-item.has-check { border-top: 1px solid var(--line-subtle); }
+
+/* 归档页：条目间分隔更清楚 */
+#paper-list .journal-section .article-item .article-check input { }
+
 .journal-section { border-top: 1px solid var(--line); }
 .journal-section:first-child { border-top: 0; }
 .journal-header {

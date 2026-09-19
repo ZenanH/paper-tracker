@@ -1,3 +1,5 @@
+const ARCHIVE_API = "api/archive";
+
 const STORAGE_KEYS = {
   hiddenJournals: "paper-tracker-hidden-journals",
   settingsGroups: "paper-tracker-settings-journal-groups",
@@ -17,6 +19,8 @@ const state = {
   supplements: null,
   theme: "system",
   settingsGroups: {},
+  archive: { items: {}, updated_at: null },
+  archiveSelection: new Set(),
 };
 
 const elements = {
@@ -29,6 +33,13 @@ const elements = {
   summary: document.querySelector("#toolbar-summary"),
   status: document.querySelector("#status-strip"),
   updateStatus: document.querySelector("#update-status"),
+  archiveToolbar: document.querySelector("#archive-toolbar"),
+  archiveCount: document.querySelector("#archive-count"),
+  archiveSelection: document.querySelector("#archive-selection"),
+  archiveSelectAll: document.querySelector("#archive-select-all"),
+  archiveNone: document.querySelector("#archive-none"),
+  archiveClear: document.querySelector("#archive-clear"),
+  archiveRestore: document.querySelector("#archive-restore"),
   dailyToolbar: document.querySelector("#daily-toolbar"),
   supplementToolbar: document.querySelector("#supplement-toolbar"),
   supplementCount: document.querySelector("#supplement-count"),
@@ -202,9 +213,10 @@ function renderSettings() {
   });
 }
 
-function journalHeader(journal, count) {
+function journalHeader(journal, count, options = {}) {
   const metric = journal.impact_factor || {};
   const hasMetric = metric.value !== undefined && metric.value !== null && metric.value !== "";
+  const control = options.journalControl || "";
   return `
     <header class="journal-header">
       <div>
@@ -215,27 +227,56 @@ function journalHeader(journal, count) {
           ${hasMetric ? `<span class="meta-badge">IF ${escapeHTML(metric.value)} · ${escapeHTML(metric.year || "年份待核实")}</span>` : ""}
         </div>
       </div>
-      <span class="journal-count">${count} 篇</span>
+      <div class="journal-actions">
+        <span class="journal-count">${count} 篇</span>
+        ${control}
+      </div>
     </header>`;
 }
 
-function articleMarkup(article, supplementType = null) {
+// 期刊级「全部已读」勾选：勾上即把本刊当前列表整批归档
+function journalArchiveControl(journalId) {
+  return `<label class="journal-check" title="勾选表示本刊这些论文都已读过，整批归档">
+    <input type="checkbox" data-archive-journal="${escapeHTML(journalId)}" />
+    <span>全部已读</span>
+  </label>`;
+}
+
+function articleMarkup(article, supplementType = null, options = {}) {
   const href = escapeHTML(article.url || "#");
   const translated = article.translation_status === "translated" && article.title_zh;
   const detail = supplementType === "late_additions"
     ? `归档日期 ${escapeHTML(article.archived_date || article.published_date || "未知")}`
     : supplementType === "date_pending" ? `日期精度 ${escapeHTML(article.date_precision || "缺失")}` : "";
-  return `<li class="article-item">
-    ${translated ? `<a class="article-title-zh" href="${href}" target="_blank" rel="noopener noreferrer">${escapeHTML(article.title_zh)}</a>` : `<span class="pending-translation">中文翻译处理中</span>`}
-    <a class="article-title-en" href="${href}" target="_blank" rel="noopener noreferrer">${escapeHTML(article.title_en || "无标题")}</a>
-    ${(detail || article.doi) ? `<div class="article-footnote">${detail ? `<span>${detail}</span>` : ""}${article.doi ? `<span>DOI ${escapeHTML(article.doi)}</span>` : ""}</div>` : ""}
+  const control = options.control || null;
+  const footnote = options.footnote || "";
+  return `<li class="article-item${control ? " has-check" : ""}">
+    ${control || ""}
+    <div class="article-body">
+      ${translated ? `<a class="article-title-zh" href="${href}" target="_blank" rel="noopener noreferrer">${escapeHTML(article.title_zh)}</a>` : `<span class="pending-translation">中文翻译处理中</span>`}
+      <a class="article-title-en" href="${href}" target="_blank" rel="noopener noreferrer">${escapeHTML(article.title_en || "无标题")}</a>
+      ${(detail || article.doi || footnote) ? `<div class="article-footnote">${detail ? `<span>${detail}</span>` : ""}${article.doi ? `<span>DOI ${escapeHTML(article.doi)}</span>` : ""}${footnote ? `<span>${footnote}</span>` : ""}</div>` : ""}
+    </div>
   </li>`;
 }
 
-function renderGrouped(articles, supplementType = null) {
-  const visible = articles.filter((article) => state.selected.has(article.journal_id) && article.content_type === "article");
+// 单篇「已读」勾选
+function articleArchiveControl(articleId) {
+  return `<label class="article-check" title="勾选表示这篇已读过，归档后可在「已归档」中找回">
+    <input type="checkbox" data-archive-article="${escapeHTML(articleId)}" />
+    <span class="sr-only">标记为已读</span>
+  </label>`;
+}
+
+function renderGrouped(articles, supplementType = null, options = {}) {
+  const archivable = Boolean(options.archivable);
+  const visible = articles.filter((article) => (
+    state.selected.has(article.journal_id)
+    && article.content_type === "article"
+    && !(archivable && isArchived(article.id))
+  ));
   if (!visible.length) {
-    elements.list.innerHTML = `<div class="empty-state"><div><i data-lucide="inbox"></i><strong>当前范围没有论文</strong><span>可调整日期或期刊筛选。</span></div></div>`;
+    elements.list.innerHTML = `<div class="empty-state"><div><i data-lucide="inbox"></i><strong>${archivable ? "本日论文已全部归档" : "当前范围没有论文"}</strong><span>${archivable ? "可到「已归档」查看或恢复。" : "可调整日期或期刊筛选。"}</span></div></div>`;
     renderIcons();
     return 0;
   }
@@ -248,8 +289,10 @@ function renderGrouped(articles, supplementType = null) {
     const journal = state.journalMap.get(journalId);
     if (!journal) return "";
     return `<section class="journal-section" id="journal-${escapeHTML(journalId)}">
-      ${journalHeader(journal, items.length)}
-      <ol class="article-list">${items.map((item) => articleMarkup(item, supplementType)).join("")}</ol>
+      ${journalHeader(journal, items.length, { journalControl: archivable ? journalArchiveControl(journalId) : "" })}
+      <ol class="article-list">${items.map((item) => articleMarkup(item, supplementType, {
+        control: archivable ? articleArchiveControl(item.id) : null,
+      })).join("")}</ol>
     </section>`;
   }).join("");
   renderIcons();
@@ -258,8 +301,18 @@ function renderGrouped(articles, supplementType = null) {
 
 function renderDaily() {
   const articles = state.day?.articles || [];
-  const count = articles.filter((article) => state.selected.has(article.journal_id) && article.content_type === "article").length;
-  elements.heading.innerHTML = `<h1>${escapeHTML(formatDate(state.date))}</h1><p>${count} 篇新论文 · 按首次在线发表日期归档</p>`;
+  const count = articles.filter((article) => (
+    state.selected.has(article.journal_id)
+    && article.content_type === "article"
+    && !isArchived(article.id)
+  )).length;
+  const archivedCount = articles.filter((article) => (
+    state.selected.has(article.journal_id)
+    && article.content_type === "article"
+    && isArchived(article.id)
+  )).length;
+  const archivedNote = archivedCount ? ` · 已归档 ${archivedCount} 篇` : "";
+  elements.heading.innerHTML = `<h1>${escapeHTML(formatDate(state.date))}</h1><p>${count} 篇新论文 · 按首次在线发表日期归档${archivedNote}</p>`;
   elements.summary.textContent = state.manifest.updated_at ? `最近更新 ${formatDateTime(state.manifest.updated_at)}` : "";
   const failures = Object.values(state.day?.journal_status || {}).filter((status) => status.status === "failed").length;
   elements.status.hidden = failures === 0;
@@ -268,7 +321,7 @@ function renderDaily() {
   } else {
     elements.status.replaceChildren();
   }
-  renderGrouped(articles);
+  renderGrouped(articles, null, { archivable: true });
 }
 
 function renderSupplements() {
@@ -280,8 +333,74 @@ function renderSupplements() {
   renderGrouped(articles, state.supplement);
 }
 
+function isArchived(articleId) {
+  return Boolean(articleId && state.archive.items[articleId]);
+}
+
+function archiveItemsVisible() {
+  return Object.values(state.archive.items)
+    .filter((item) => state.selected.has(item.journal_id))
+    .sort((left, right) => String(right.archived_at || "").localeCompare(String(left.archived_at || "")));
+}
+
+function renderArchive() {
+  const items = archiveItemsVisible();
+  const total = Object.keys(state.archive.items).length;
+  const hidden = total - items.length;
+  elements.heading.innerHTML = `<h1>已归档</h1><p>${items.length} 篇已读论文${hidden > 0 ? ` · 另有 ${hidden} 篇被期刊筛选隐藏` : ""}</p>`;
+  elements.status.hidden = true;
+  elements.status.replaceChildren();
+
+  if (!items.length) {
+    elements.list.innerHTML = `<div class="empty-state"><div><i data-lucide="archive"></i><strong>${total ? "当前筛选下没有已归档论文" : "还没有已归档的论文"}</strong><span>${total ? "可在设置中恢复期刊显示。" : "在「每日论文」里勾选读过的论文或整本期刊即可归档。"}</span></div></div>`;
+    updateArchiveSelectionUI();
+    renderIcons();
+    return;
+  }
+
+  const groups = items.reduce((all, item) => {
+    (all[item.journal_id] ||= []).push(item); return all;
+  }, {});
+
+  elements.list.innerHTML = Object.entries(groups).sort(([a], [b]) => {
+    const nameA = state.journalMap.get(a)?.name || a;
+    const nameB = state.journalMap.get(b)?.name || b;
+    return nameA.localeCompare(nameB);
+  }).map(([journalId, entries]) => {
+    const journal = state.journalMap.get(journalId);
+    const name = journal?.name || journalId;
+    const allSelected = entries.every((entry) => state.archiveSelection.has(entry.id));
+    return `<section class="journal-section" id="journal-${escapeHTML(journalId)}">
+      ${journalHeader(journal || { name, cas: {}, impact_factor: {} }, entries.length, {
+        journalControl: `<label class="journal-check" title="选择本刊全部已归档论文">
+          <input type="checkbox" data-archive-group="${escapeHTML(journalId)}" ${allSelected ? "checked" : ""} />
+          <span>选择本刊</span>
+        </label>`,
+      })}
+      <ol class="article-list">${entries.map((entry) => articleMarkup(entry, null, {
+        control: `<label class="article-check" title="选择这篇以恢复">
+          <input type="checkbox" data-archive-item="${escapeHTML(entry.id)}" ${state.archiveSelection.has(entry.id) ? "checked" : ""} />
+          <span class="sr-only">选择这篇</span>
+        </label>`,
+        footnote: entry.archived_at ? `归档于 ${escapeHTML(formatDateTime(entry.archived_at))}` : "",
+      })).join("")}</ol>
+    </section>`;
+  }).join("");
+  updateArchiveSelectionUI();
+  renderIcons();
+}
+
+function updateArchiveSelectionUI() {
+  const count = state.archiveSelection.size;
+  elements.archiveSelection.textContent = count ? `已选 ${count} 篇` : "未选择";
+  elements.archiveRestore.disabled = count === 0;
+  elements.archiveRestore.textContent = count ? `恢复所选 (${count})` : "恢复所选";
+}
+
 function renderCurrent() {
-  if (state.view === "daily") renderDaily(); else renderSupplements();
+  if (state.view === "daily") renderDaily();
+  else if (state.view === "archive") renderArchive();
+  else renderSupplements();
   renderIcons();
 }
 
@@ -309,6 +428,7 @@ function switchView(view) {
   document.querySelectorAll(".view-tab").forEach((tab) => tab.classList.toggle("is-active", tab.dataset.view === view));
   elements.dailyToolbar.hidden = view !== "daily";
   elements.supplementToolbar.hidden = view !== "supplements";
+  elements.archiveToolbar.hidden = view !== "archive";
   renderCurrent();
   syncURL();
 }
@@ -333,6 +453,85 @@ function renderUpdateStatus(manifest) {
     <time datetime="${escapeHTML(timestamp || "")}">${escapeHTML(formatDateTime(timestamp))}</time>`;
 }
 
+async function postArchive(payload) {
+  const response = await fetch(ARCHIVE_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try {
+      const body = await response.json();
+      if (body && body.error) detail = body.error;
+    } catch (error) { /* 非 JSON 响应，保留状态码 */ }
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
+function showError(message) {
+  elements.status.hidden = false;
+  elements.status.innerHTML = `<i data-lucide="triangle-alert"></i><span>${escapeHTML(message)}</span>`;
+  renderIcons();
+}
+
+function updateArchiveCount() {
+  const count = Object.keys(state.archive.items).length;
+  elements.archiveCount.hidden = count === 0;
+  elements.archiveCount.textContent = count;
+}
+
+async function loadArchive() {
+  try {
+    const data = await fetchJSON(ARCHIVE_API);
+    state.archive = { items: data.items || {}, updated_at: data.updated_at || null };
+  } catch (error) {
+    state.archive = { items: {}, updated_at: null };
+  }
+  updateArchiveCount();
+}
+
+async function archiveArticles(articles) {
+  const candidates = articles.filter((article) => article && article.id && !isArchived(article.id));
+  if (!candidates.length) return;
+  try {
+    const data = await postArchive({
+      action: "add",
+      items: candidates.map((article) => ({
+        id: article.id,
+        journal_id: article.journal_id,
+        date: article.archived_date || article.published_date || state.date || null,
+        title_en: article.title_en || "",
+        title_zh: article.title_zh || "",
+        url: article.url || "",
+        doi: article.doi || "",
+      })),
+    });
+    state.archive = { items: data.items || {}, updated_at: data.updated_at || null };
+  } catch (error) {
+    showError(`归档失败：${error.message}`);
+    return;
+  }
+  updateArchiveCount();
+  renderCurrent();
+}
+
+async function restoreArticles(ids) {
+  if (!ids.length) return;
+  try {
+    const data = await postArchive({ action: "remove", ids });
+    state.archive = { items: data.items || {}, updated_at: data.updated_at || null };
+  } catch (error) {
+    showError(`恢复失败：${error.message}`);
+    return;
+  }
+  ids.forEach((id) => state.archiveSelection.delete(id));
+  updateArchiveCount();
+  renderCurrent();
+}
+
 function bindEvents() {
   document.querySelectorAll(".view-tab").forEach((tab) => tab.addEventListener("click", () => switchView(tab.dataset.view)));
   elements.previous.addEventListener("click", () => loadDay(addDays(state.date, -1)));
@@ -352,6 +551,68 @@ function bindEvents() {
   elements.settingsDialog.addEventListener("click", (event) => {
     if (event.target === elements.settingsDialog) elements.settingsDialog.close();
   });
+  elements.list.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (target.dataset.archiveArticle) {
+      const article = (state.day?.articles || []).find((item) => item.id === target.dataset.archiveArticle);
+      if (target.checked && article) {
+        archiveArticles([article]);
+      } else if (!target.checked) {
+        target.checked = false;
+      }
+      return;
+    }
+    if (target.dataset.archiveJournal) {
+      const journalId = target.dataset.archiveJournal;
+      const articles = (state.day?.articles || []).filter((item) => item.journal_id === journalId && item.content_type === "article");
+      if (target.checked) archiveArticles(articles);
+      return;
+    }
+    if (target.dataset.archiveItem) {
+      const id = target.dataset.archiveItem;
+      if (target.checked) state.archiveSelection.add(id);
+      else state.archiveSelection.delete(id);
+      const section = target.closest(".journal-section");
+      if (section) {
+        const boxes = [...section.querySelectorAll("[data-archive-item]")];
+        const group = section.querySelector("[data-archive-group]");
+        if (group) group.checked = boxes.length > 0 && boxes.every((box) => box.checked);
+      }
+      updateArchiveSelectionUI();
+      return;
+    }
+    if (target.dataset.archiveGroup) {
+      const journalId = target.dataset.archiveGroup;
+      archiveItemsVisible()
+        .filter((item) => item.journal_id === journalId)
+        .forEach((item) => {
+          if (target.checked) state.archiveSelection.add(item.id);
+          else state.archiveSelection.delete(item.id);
+        });
+      renderArchive();
+    }
+  });
+
+  elements.archiveSelectAll.addEventListener("click", () => {
+    archiveItemsVisible().forEach((item) => state.archiveSelection.add(item.id));
+    renderArchive();
+  });
+  elements.archiveNone.addEventListener("click", () => {
+    state.archiveSelection.clear();
+    renderArchive();
+  });
+  elements.archiveClear.addEventListener("click", () => {
+    const ids = Object.keys(state.archive.items);
+    if (!ids.length) return;
+    if (!window.confirm(`确定清空全部 ${ids.length} 篇归档记录？论文会重新出现在「每日论文」中。`)) return;
+    state.archiveSelection.clear();
+    restoreArticles(ids);
+  });
+  elements.archiveRestore.addEventListener("click", () => {
+    restoreArticles([...state.archiveSelection]);
+  });
+
   document.querySelector("#restore-journals").addEventListener("click", () => {
     state.hidden.clear();
     state.selected = new Set(state.journals.map((journal) => journal.id));
@@ -384,8 +645,10 @@ async function start() {
     state.settingsGroups = parseStorageJSON(STORAGE_KEYS.settingsGroups, {});
     normalizeJournalPreferences();
     state.supplements = supplements || { late_additions: [], date_pending: [] };
+    await loadArchive();
     const params = new URLSearchParams(location.search);
-    state.view = params.get("view") === "supplements" ? "supplements" : "daily";
+    const requestedView = params.get("view");
+    state.view = ["supplements", "archive"].includes(requestedView) ? requestedView : "daily";
     state.supplement = params.get("type") === "date_pending" ? "date_pending" : "late_additions";
     state.date = params.get("date") || manifest.default_date;
     elements.datePicker.min = manifest.retention.start;
@@ -397,7 +660,7 @@ async function start() {
     renderSettings();
     bindEvents();
     document.querySelectorAll("[data-supplement]").forEach((item) => item.classList.toggle("is-active", item.dataset.supplement === state.supplement));
-    if (state.view === "daily") await loadDay(state.date); else switchView("supplements");
+    if (state.view === "daily") await loadDay(state.date);
     switchView(state.view);
     renderUpdateStatus(state.manifest);
   } catch (error) {
