@@ -117,6 +117,16 @@ def pending_articles(engine: str, retranslate_existing: bool = False) -> list[tu
     return records
 
 
+def group_records_by_title(
+    records: list[tuple[Any, dict[str, Any]]], engine: str
+) -> list[tuple[str, list[tuple[Any, dict[str, Any]]]]]:
+    grouped: dict[str, list[tuple[Any, dict[str, Any]]]] = {}
+    for path, article in records:
+        key = title_cache_key(article["title_en"], engine)
+        grouped.setdefault(key, []).append((path, article))
+    return list(grouped.items())
+
+
 def request_json(
     url: str,
     payload: Any,
@@ -293,11 +303,16 @@ def translate_llm_batch(config: LLMConfig, titles: list[str]) -> list[str]:
 def translate_batch_job(
     config: LLMConfig,
     offset: int,
-    batch: list[tuple[Any, dict[str, Any], str]],
-) -> tuple[int, list[tuple[Any, dict[str, Any], str]], list[str] | None, Exception | None]:
+    batch: list[tuple[str, list[tuple[Any, dict[str, Any]]]]],
+) -> tuple[
+    int,
+    list[tuple[str, list[tuple[Any, dict[str, Any]]]]],
+    list[str] | None,
+    Exception | None,
+]:
     """Run one API batch in a worker; persistence stays in the main thread."""
     try:
-        results = translate_llm_batch(config, [item[1]["title_en"] for item in batch])
+        results = translate_llm_batch(config, [records[0][1]["title_en"] for _, records in batch])
     except Exception as exc:  # Keep other workers and resumable progress alive.
         return offset, batch, None, exc
     return offset, batch, results, None
@@ -354,19 +369,20 @@ def main(
     )
     cache.setdefault("entries", {})
     records = pending_articles(engine, retranslate_existing=retranslate_existing)
+    grouped_records = group_records_by_title(records, engine)
 
     cached_records = []
     unresolved = []
-    for path, article in records:
-        key = title_cache_key(article["title_en"], engine)
+    for key, matching_records in grouped_records:
         cached = cache["entries"].get(key)
         if cached and cached.get("translation") and cached.get("engine") == engine:
-            article["title_zh"] = cached["translation"]
-            article["translation_status"] = "translated"
-            article["translation_engine"] = engine
-            cached_records.append((path, article))
+            for path, article in matching_records:
+                article["title_zh"] = cached["translation"]
+                article["translation_status"] = "translated"
+                article["translation_engine"] = engine
+                cached_records.append((path, article))
         else:
-            unresolved.append((path, article, key))
+            unresolved.append((key, matching_records))
 
     if cached_records:
         persist_records(cached_records)
@@ -385,7 +401,12 @@ def main(
         )
         pending_results: dict[
             int,
-            tuple[int, list[tuple[Any, dict[str, Any], str]], list[str] | None, Exception | None],
+            tuple[
+                int,
+                list[tuple[str, list[tuple[Any, dict[str, Any]]]]],
+                list[str] | None,
+                Exception | None,
+            ],
         ] = {}
         next_offset = 0
         with ThreadPoolExecutor(
@@ -414,19 +435,23 @@ def main(
                         )
                     else:
                         assert results is not None
-                        for (path, article, key), translated in zip(batch, results):
-                            article["title_zh"] = translated
-                            article["translation_status"] = "translated"
-                            article["translation_engine"] = engine
+                        changed_records = []
+                        for (key, matching_records), translated in zip(batch, results):
+                            for path, article in matching_records:
+                                article["title_zh"] = translated
+                                article["translation_status"] = "translated"
+                                article["translation_engine"] = engine
+                                changed_records.append((path, article))
+                            source = matching_records[0][1]["title_en"]
                             cache["entries"][key] = {
-                                "source": article["title_en"],
+                                "source": source,
                                 "translation": translated,
                                 "engine": engine,
                                 "model": config.model,
                                 "translated_at": iso_now(),
                             }
                             translated_count += 1
-                        persist_records([(path, article) for path, article, _ in batch])
+                        persist_records(changed_records)
                         persist_cache(translations_path, cache, config, engine)
                     next_offset += len(batch)
                     print(

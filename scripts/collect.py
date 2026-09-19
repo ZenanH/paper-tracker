@@ -137,21 +137,21 @@ def article_from_item(item: dict[str, Any], journal: dict[str, Any], discovered_
     return article
 
 
-def load_existing() -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
+def load_existing() -> tuple[dict[str, dict[str, Any]], dict[str, set[str]]]:
     articles: dict[str, dict[str, Any]] = {}
-    locations: dict[str, str] = {}
+    locations: dict[str, set[str]] = {}
     for path in iter_day_files():
         day = read_json(path, {})
         for article in day.get("articles", []):
             key = article_key(article)
             articles[key] = article
-            locations[key] = path.stem
+            locations.setdefault(key, set()).add(path.stem)
     supplements = read_json(DATA_DIR / "supplements.json", {"late_additions": [], "date_pending": []})
     for bucket in ("late_additions", "date_pending"):
         for article in supplements.get(bucket, []):
             key = article_key(article)
             articles[key] = article
-            locations[key] = bucket
+            locations.setdefault(key, set()).add(bucket)
     return articles, locations
 
 
@@ -302,11 +302,16 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
     statuses = read_json(DATA_DIR / "collection-status.json", {})
     initializing = not bool(statuses)
     supplements = read_json(DATA_DIR / "supplements.json", {"late_additions": [], "date_pending": []})
+    supplement_maps = {
+        bucket: {article_key(item): item for item in supplements.get(bucket, [])}
+        for bucket in ("late_additions", "date_pending")
+    }
     translations = read_json(DATA_DIR / "translations.json", {"model": None, "entries": {}})
     translation_entries = translations.get("entries", {})
     discovered_at = iso_now()
     client = CrossrefClient()
     changed_days: dict[str, dict[str, dict[str, Any]]] = {}
+    removed_from_days: dict[str, set[str]] = {}
 
     for journal in journals:
         try:
@@ -341,34 +346,70 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
                 article["title_zh"] = cached["translation"]
                 article["translation_status"] = "translated"
                 article["translation_engine"] = cached.get("engine") or cached.get("model")
+            previous_locations = set(locations.get(key, set()))
             if key in existing:
                 old = existing[key]
                 article["first_discovered_at"] = old["first_discovered_at"]
                 article["title_zh"] = old.get("title_zh") or article["title_zh"]
                 article["translation_status"] = old.get("translation_status", article["translation_status"])
                 article["translation_engine"] = old.get("translation_engine") or article["translation_engine"]
+                # Do not demote a record with a confirmed publication date when
+                # a later Crossref response temporarily omits date metadata.
+                if not article["published_date"] and old.get("published_date"):
+                    article["published_date"] = old["published_date"]
+                    article["date_precision"] = old.get("date_precision", "date")
+                    article["date_source"] = old.get("date_source", "unknown")
             existing[key] = article
 
             if article["published_date"]:
+                supplement_maps["date_pending"].pop(key, None)
+                for old_location in previous_locations:
+                    if old_location not in {"late_additions", "date_pending", article["published_date"]}:
+                        removed_from_days.setdefault(old_location, set()).add(key)
+
+                if key in supplement_maps["late_additions"]:
+                    supplement_maps["late_additions"][key] = {
+                        **supplement_maps["late_additions"][key],
+                        **article,
+                        "supplement_type": "late_addition",
+                        "archived_date": article["published_date"],
+                    }
                 published = date.fromisoformat(article["published_date"])
                 if published < retention_start(target) or published > target:
+                    locations[key] = {"late_additions"} if "late_additions" in previous_locations else set()
                     continue
                 changed_days.setdefault(article["published_date"], {})[key] = article
-                if mode != "backfill" and not initializing and key not in locations and published < target:
+                if mode != "backfill" and not initializing and not previous_locations and published < target:
                     late = {**article, "supplement_type": "late_addition", "archived_date": article["published_date"]}
-                    supplements.setdefault("late_additions", []).append(late)
+                    supplement_maps["late_additions"][key] = late
             else:
-                if mode != "backfill" and not initializing and key not in locations:
+                if key in supplement_maps["date_pending"]:
+                    supplement_maps["date_pending"][key] = {
+                        **supplement_maps["date_pending"][key],
+                        **article,
+                        "supplement_type": "date_pending",
+                    }
+                elif mode != "backfill" and not initializing and not previous_locations:
                     pending = {**article, "supplement_type": "date_pending"}
-                    supplements.setdefault("date_pending", []).append(pending)
-            locations[key] = article["published_date"] or "date_pending"
+                    supplement_maps["date_pending"][key] = pending
+            locations[key] = {
+                article["published_date"] or "date_pending",
+                *({"late_additions"} if key in supplement_maps["late_additions"] else set()),
+            }
 
-    for day, additions in changed_days.items():
+    for day in sorted(set(changed_days) | set(removed_from_days)):
+        additions = changed_days.get(day, {})
         path = DAYS_DIR / f"{day}.json"
         current = read_json(path, day_payload(day, [], {}))
-        merged = {article_key(item): item for item in current.get("articles", [])}
+        removals = removed_from_days.get(day, set())
+        merged = {
+            article_key(item): item
+            for item in current.get("articles", [])
+            if article_key(item) not in removals
+        }
         merged.update(additions)
-        write_json(path, day_payload(day, list(merged.values()), statuses))
+        journal_status = statuses if day == target.isoformat() else current.get("journal_status", {})
+        write_json(path, day_payload(day, list(merged.values()), journal_status))
 
     # Keep an explicit empty file for a checked day so the calendar can
     # distinguish "no papers" from "data was never generated".
@@ -378,9 +419,10 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
             write_json(target_path, day_payload(target.isoformat(), [], statuses))
 
     for bucket in ("late_additions", "date_pending"):
-        deduped = {article_key(item): item for item in supplements.get(bucket, [])}
         supplements[bucket] = sorted(
-            deduped.values(), key=lambda item: item.get("first_discovered_at", ""), reverse=True
+            supplement_maps[bucket].values(),
+            key=lambda item: item.get("first_discovered_at", ""),
+            reverse=True,
         )
     supplements["updated_at"] = iso_now()
     write_json(DATA_DIR / "supplements.json", supplements)

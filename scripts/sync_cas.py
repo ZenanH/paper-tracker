@@ -5,7 +5,7 @@ import json
 import sys
 from pathlib import Path
 
-from common import DATA_DIR, ROOT, file_sha256, git_blob_sha, iso_now, slugify, write_json
+from common import DATA_DIR, ROOT, file_sha256, git_blob_sha, iso_now, read_json, slugify, write_json
 from journal_config import ensure_config, normalized
 
 # 本地归档的官方快照（随仓库保存，按 git blob 校验值锁定版本）
@@ -22,8 +22,7 @@ def load_source(source_file: Path | None) -> bytes:
     return path.read_bytes()
 
 
-def main() -> int:
-    source_file = Path(sys.argv[1]) if len(sys.argv) > 1 else None
+def main(source_file: Path | None = None) -> int:
     content = load_source(source_file)
     actual_blob = git_blob_sha(content)
     if actual_blob != EXPECTED_BLOB:
@@ -40,6 +39,14 @@ def main() -> int:
         )
     }
     config = ensure_config()
+    previous = read_json(DATA_DIR / "journals.json", {})
+    if not isinstance(previous, dict):
+        previous = {}
+    previous_metrics = {
+        journal.get("id"): journal.get("impact_factor")
+        for journal in previous.get("journals", [])
+        if isinstance(journal, dict) and isinstance(journal.get("impact_factor"), dict)
+    }
     journals = []
     missing = []
     for group, entries in config["categories"].items():
@@ -57,9 +64,17 @@ def main() -> int:
                 if subject:
                     subjects.append({"name": subject, "zone": zone})
             issns = [part.strip() for part in row["ISSN/EISSN"].split("/") if part.strip()]
+            journal_id = slugify(entry["name"])
+            seeded_metric = {
+                "value": entry.get("if"),
+                "year": entry.get("if_year"),
+                "status": "seeded_unverified",
+                "source_url": entry.get("metric_url") or entry["url"],
+                "checked_at": None,
+            }
             journals.append(
                 {
-                    "id": slugify(entry["name"]),
+                    "id": journal_id,
                     "name": entry["name"],
                     "source_name": row["Journal"],
                     "group": group,
@@ -75,13 +90,7 @@ def main() -> int:
                         "top": row["Top"] == "是",
                         "subjects": subjects,
                     },
-                    "impact_factor": {
-                        "value": entry.get("if"),
-                        "year": entry.get("if_year"),
-                        "status": "seeded_unverified",
-                        "source_url": entry.get("metric_url") or entry["url"],
-                        "checked_at": None,
-                    },
+                    "impact_factor": previous_metrics.get(journal_id) or seeded_metric,
                 }
             )
     if missing:
@@ -97,10 +106,13 @@ def main() -> int:
         },
         "journals": journals,
     }
+    if previous.get("metrics_checked_at"):
+        payload["metrics_checked_at"] = previous["metrics_checked_at"]
     write_json(DATA_DIR / "journals.json", payload)
     print(f"Wrote {len(journals)} journals to data/journals.json")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    selected_source = Path(sys.argv[1]) if len(sys.argv) > 1 else None
+    raise SystemExit(main(selected_source))

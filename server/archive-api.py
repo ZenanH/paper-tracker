@@ -33,6 +33,10 @@ ITEM_FIELDS = (
 MAX_BODY = 2 * 1024 * 1024
 
 
+class ArchiveStateError(RuntimeError):
+    pass
+
+
 def now_iso() -> str:
     return datetime.now(BEIJING).isoformat(timespec="seconds")
 
@@ -74,13 +78,15 @@ def read_state() -> dict:
         return empty_state()
     try:
         data = json.loads(ARCHIVE_FILE.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
-        return empty_state()
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
+        raise ArchiveStateError(f"归档文件无法读取或已损坏: {ARCHIVE_FILE}") from exc
     if not isinstance(data, dict):
-        return empty_state()
+        raise ArchiveStateError(f"归档文件根节点必须是 JSON 对象: {ARCHIVE_FILE}")
     for bucket_name in ("items", "cleared_items", "favorites"):
-        if not isinstance(data.get(bucket_name), dict):
+        if bucket_name not in data:
             data[bucket_name] = {}
+        elif not isinstance(data[bucket_name], dict):
+            raise ArchiveStateError(f"归档文件字段 {bucket_name} 必须是 JSON 对象")
     data.setdefault("updated_at", None)
     return data
 
@@ -241,7 +247,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"status": "ok"})
             return
         if path == "/api/archive":
-            self._send(200, read_pruned_state())
+            try:
+                self._send(200, read_pruned_state())
+            except ArchiveStateError as exc:
+                self._send(500, {"error": str(exc)})
             return
         self._send(404, {"error": "not found"})
 
@@ -264,6 +273,9 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(payload, dict):
                 raise ValueError("请求体必须是 JSON 对象")
             state = apply_archive(payload)
+        except ArchiveStateError as exc:
+            self._send(500, {"error": str(exc)})
+            return
         except ValueError as exc:
             self._send(400, {"error": str(exc)})
             return

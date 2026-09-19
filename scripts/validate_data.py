@@ -5,7 +5,7 @@ import json
 from datetime import date
 from pathlib import Path
 
-from common import DATA_DIR, DAYS_DIR, iter_day_files
+from common import DATA_DIR, article_key, iter_day_files, retention_start
 
 
 def main() -> int:
@@ -16,7 +16,11 @@ def main() -> int:
     manifest = json.loads((DATA_DIR / "manifest.json").read_text(encoding="utf-8"))
     files = list(iter_day_files())
     assert manifest["available_dates"] == [path.stem for path in files]
-    assert date.fromisoformat(manifest["retention"]["start"]) <= date.fromisoformat(manifest["retention"]["end"])
+    retention_end = date.fromisoformat(manifest["retention"]["end"])
+    retention_begin = date.fromisoformat(manifest["retention"]["start"])
+    assert retention_begin == retention_start(retention_end)
+    assert manifest["default_date"] == retention_end.isoformat()
+    assert all(retention_begin <= date.fromisoformat(path.stem) <= retention_end for path in files)
     seen = set()
     for path in files:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -25,11 +29,30 @@ def main() -> int:
         for article in payload["articles"]:
             assert article["journal_id"] in journal_ids, article
             assert article["url"].startswith(("http://", "https://")), article
-            key = article.get("doi") or article["id"]
+            assert article.get("published_date") == path.stem, article
+            key = article_key(article)
             assert key not in seen, f"Duplicate article across day files: {key}"
             seen.add(key)
+    supplements = json.loads((DATA_DIR / "supplements.json").read_text(encoding="utf-8"))
+    supplement_keys = {}
     for bucket in ("late_additions", "date_pending"):
-        assert isinstance(json.loads((DATA_DIR / "supplements.json").read_text(encoding="utf-8"))[bucket], list)
+        records = supplements[bucket]
+        assert isinstance(records, list)
+        keys = set()
+        for article in records:
+            assert article["journal_id"] in journal_ids, article
+            assert article["url"].startswith(("http://", "https://")), article
+            if bucket == "date_pending":
+                assert not article.get("published_date"), article
+            else:
+                assert article.get("published_date"), article
+            key = article_key(article)
+            assert key not in keys, f"Duplicate article in {bucket}: {key}"
+            keys.add(key)
+        supplement_keys[bucket] = keys
+    assert not (supplement_keys["late_additions"] & supplement_keys["date_pending"])
+    assert manifest["late_addition_count"] == len(supplements["late_additions"])
+    assert manifest["date_pending_count"] == len(supplements["date_pending"])
     print(f"Validated {len(files)} day files and {len(seen)} articles")
     return 0
 

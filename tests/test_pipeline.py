@@ -2,12 +2,15 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import collect
+import sync_cas
+import update_metrics
 from collect import CrossrefClient, article_from_item, classify_title, gather_for_journal, publication_date
 from update_metrics import parse_metric
 
@@ -16,6 +19,60 @@ JOURNAL = {"id": "example", "url": "https://example.com"}
 
 
 class PipelineTests(unittest.TestCase):
+    def article(self, published_date=None):
+        return {
+            "id": "10.1000/example",
+            "doi": "10.1000/example",
+            "journal_id": "example",
+            "title_en": "Example title",
+            "title_zh": None,
+            "translation_status": "pending",
+            "translation_engine": None,
+            "url": "https://doi.org/10.1000/example",
+            "published_date": published_date,
+            "date_precision": "date" if published_date else "month",
+            "date_source": "published-online",
+            "first_discovered_at": "2026-09-17T01:00:00+08:00",
+            "last_seen_at": "2026-09-17T01:00:00+08:00",
+            "content_type": "article",
+            "crossref_type": "journal-article",
+        }
+
+    def prepare_collection_data(self, root):
+        days = root / "days"
+        days.mkdir()
+        (root / "journals.json").write_text(
+            json.dumps(
+                {
+                    "journals": [
+                        {
+                            "id": "example",
+                            "name": "Example",
+                            "url": "https://example.com",
+                            "issns": ["1234-5678"],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        (root / "translations.json").write_text(json.dumps({"entries": {}}), encoding="utf-8")
+        (root / "collection-status.json").write_text(
+            json.dumps({"example": {"status": "ok"}}), encoding="utf-8"
+        )
+        return days
+
+    def run_collection(self, root, items, target=date(2026, 9, 18)):
+        days = root / "days"
+        with patch.object(collect, "DATA_DIR", root), patch.object(
+            collect, "DAYS_DIR", days
+        ), patch.object(
+            collect, "iter_day_files", side_effect=lambda: sorted(days.glob("????-??-??.json"))
+        ), patch.object(
+            collect, "gather_for_journal", return_value=(items, "1234-5678")
+        ):
+            collect.collect("daily", target)
+
     def test_online_date_wins(self):
         item = {
             "published-online": {"date-parts": [[2026, 9, 15]]},
@@ -128,6 +185,128 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(removed, 1)
             cache = json.loads((root / "translations.json").read_text(encoding="utf-8"))
             self.assertEqual(set(cache["entries"]), {"day", "supplement"})
+
+    def test_sync_cas_preserves_verified_metric_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            old_metric = {
+                "value": 9.9,
+                "year": 2025,
+                "status": "verified",
+                "source_url": "https://example.com/metric",
+                "checked_at": "2026-08-01T01:00:00+08:00",
+            }
+            (root / "journals.json").write_text(
+                json.dumps(
+                    {
+                        "metrics_checked_at": "2026-08-01T02:00:00+08:00",
+                        "journals": [
+                            {"id": "nature-communications", "impact_factor": old_metric}
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config = {
+                "categories": {
+                    "顶刊": [
+                        {
+                            "name": "Nature Communications",
+                            "url": "https://www.nature.com/ncomms/",
+                            "if": 1.0,
+                            "if_year": 2024,
+                        }
+                    ]
+                }
+            }
+            with patch.object(sync_cas, "DATA_DIR", root), patch.object(
+                sync_cas, "ensure_config", return_value=config
+            ):
+                sync_cas.main()
+
+            payload = json.loads((root / "journals.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["journals"][0]["impact_factor"], old_metric)
+            self.assertEqual(payload["metrics_checked_at"], "2026-08-01T02:00:00+08:00")
+
+    def test_targeted_metric_check_does_not_advance_global_timestamp(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "journals.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "metrics_checked_at": "2026-06-01T01:00:00+08:00",
+                        "journals": [
+                            {"id": "example", "name": "Example", "impact_factor": {}}
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def mark_checked(journal):
+                journal["impact_factor"]["status"] = "verified"
+
+            with patch.object(update_metrics, "DATA_DIR", root), patch.object(
+                update_metrics, "update_journal", side_effect=mark_checked
+            ):
+                update_metrics.main("example")
+
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["metrics_checked_at"], "2026-06-01T01:00:00+08:00")
+
+    def test_pending_article_moves_to_confirmed_day(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.prepare_collection_data(root)
+            (root / "supplements.json").write_text(
+                json.dumps({"late_additions": [], "date_pending": [self.article()]}),
+                encoding="utf-8",
+            )
+            item = {
+                "DOI": "10.1000/example",
+                "title": ["Example title"],
+                "published-online": {"date-parts": [[2026, 9, 18]]},
+                "type": "journal-article",
+            }
+            self.run_collection(root, [item])
+
+            supplements = json.loads((root / "supplements.json").read_text(encoding="utf-8"))
+            day = json.loads((root / "days" / "2026-09-18.json").read_text(encoding="utf-8"))
+            self.assertEqual(supplements["date_pending"], [])
+            self.assertEqual([article["doi"] for article in day["articles"]], ["10.1000/example"])
+
+    def test_article_date_change_removes_old_day_and_preserves_old_status(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            days = self.prepare_collection_data(root)
+            old_path = days / "2026-09-17.json"
+            old_path.write_text(
+                json.dumps(
+                    {
+                        "date": "2026-09-17",
+                        "articles": [self.article("2026-09-17")],
+                        "journal_status": {"example": {"status": "historical"}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "supplements.json").write_text(
+                json.dumps({"late_additions": [], "date_pending": []}), encoding="utf-8"
+            )
+            item = {
+                "DOI": "10.1000/example",
+                "title": ["Example title"],
+                "published-online": {"date-parts": [[2026, 9, 18]]},
+                "type": "journal-article",
+            }
+            self.run_collection(root, [item])
+
+            old = json.loads(old_path.read_text(encoding="utf-8"))
+            new = json.loads((days / "2026-09-18.json").read_text(encoding="utf-8"))
+            self.assertEqual(old["articles"], [])
+            self.assertEqual(old["journal_status"]["example"]["status"], "historical")
+            self.assertEqual(len(new["articles"]), 1)
 
 
 if __name__ == "__main__":

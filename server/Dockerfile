@@ -1,7 +1,7 @@
 FROM python:3.12-alpine
 
 LABEL org.opencontainers.image.title="paper-tracker-archive" \
-      org.opencontainers.image.description="论文追踪「已归档」状态服务（只读 API，供站点反代访问）"
+      org.opencontainers.image.description="论文追踪归档与收藏状态服务（供站点反代访问）"
 
 ENV TZ=Asia/Shanghai \
     PYTHONUNBUFFERED=1 \

@@ -86,7 +86,8 @@ def main(journal_id: str | None = None) -> int:
     for journal in journals:
         update_journal(journal)
         print(f"{journal['name']}: {journal['impact_factor']['status']}")
-    payload["metrics_checked_at"] = iso_now()
+    if journal_id is None:
+        payload["metrics_checked_at"] = iso_now()
     write_json(path, payload)
     return 0
 

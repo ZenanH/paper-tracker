@@ -9,7 +9,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
@@ -33,7 +33,7 @@ BEIJING = ZoneInfo("Asia/Shanghai")
 MAX_BODY = 128 * 1024
 JOB_LOCK = threading.Lock()
 OPERATION_LOCK = threading.Lock()
-JOB: dict[str, Any] = {
+JOB_DEFAULTS: dict[str, Any] = {
     "status": "idle",
     "kind": None,
     "message": "",
@@ -41,6 +41,8 @@ JOB: dict[str, Any] = {
     "finished_at": None,
     "log": [],
 }
+JOB: dict[str, Any] = dict(JOB_DEFAULTS)
+MAINTENANCE_PATH = DATA_DIR / "maintenance-status.json"
 
 
 def save_job() -> None:
@@ -59,6 +61,25 @@ def append_log(message: str) -> None:
         return
     with JOB_LOCK:
         JOB["log"] = [*JOB.get("log", []), clean][-40:]
+        save_job()
+
+
+def restore_job() -> None:
+    saved = read_json(DATA_DIR / "task-status.json", {})
+    with JOB_LOCK:
+        JOB.clear()
+        JOB.update(JOB_DEFAULTS)
+        if isinstance(saved, dict):
+            for key in JOB_DEFAULTS:
+                if key in saved:
+                    JOB[key] = saved[key]
+        if JOB["status"] == "running":
+            JOB.update(
+                status="failed",
+                message="上次任务在服务重启时中断",
+                finished_at=iso_now(),
+            )
+            JOB["log"] = [*JOB.get("log", []), "服务重启：上次运行中的任务已标记为中断"][-40:]
         save_job()
 
 
@@ -124,6 +145,25 @@ def metrics_due() -> bool:
     return checked_date <= subtract_months(datetime.now(BEIJING).date(), 3)
 
 
+def reconciliation_due(reference: date | None = None) -> bool:
+    current = reference or datetime.now(BEIJING).date()
+    payload = read_json(MAINTENANCE_PATH, {})
+    checked = payload.get("last_reconciled_date")
+    try:
+        checked_date = datetime.strptime(checked, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return True
+    return checked_date <= current - timedelta(days=7)
+
+
+def mark_reconciled(reference: date | None = None) -> None:
+    current = reference or datetime.now(BEIJING).date()
+    write_json(
+        MAINTENANCE_PATH,
+        {"last_reconciled_date": current.isoformat(), "updated_at": iso_now()},
+    )
+
+
 def daily_pipeline() -> None:
     run_command(["python3", "scripts/collect.py", "--mode", "daily"])
     run_command(
@@ -132,9 +172,20 @@ def daily_pipeline() -> None:
             "--batch-size", "8", "--workers", "2",
         ]
     )
+    reconciled = reconciliation_due()
+    if reconciled:
+        run_command(["python3", "scripts/collect.py", "--mode", "backfill"])
+        run_command(
+            [
+                "python3", "scripts/translate.py", "--limit", "2000",
+                "--batch-size", "8", "--workers", "2",
+            ]
+        )
     if metrics_due():
         run_command(["python3", "scripts/update_metrics.py"])
     run_command(["python3", "scripts/validate_data.py"])
+    if reconciled:
+        mark_reconciled()
 
 
 def add_pipeline(journal_id: str) -> None:
@@ -196,6 +247,26 @@ def next_run(now: datetime | None = None) -> datetime:
     return candidate
 
 
+def daily_catchup_due(now: datetime | None = None) -> bool:
+    current = now or datetime.now(BEIJING)
+    expected = (current.date() - timedelta(days=1)).isoformat()
+    actual = read_json(DATA_DIR / "manifest.json", {}).get("default_date")
+    try:
+        return datetime.strptime(actual, "%Y-%m-%d").date() < datetime.strptime(
+            expected, "%Y-%m-%d"
+        ).date()
+    except (TypeError, ValueError):
+        return True
+
+
+def start_startup_catchup() -> bool:
+    if not daily_catchup_due():
+        return False
+    with OPERATION_LOCK:
+        start_job("daily-catchup", daily_pipeline)
+    return True
+
+
 def scheduler_loop() -> None:
     while True:
         scheduled = next_run()
@@ -206,6 +277,8 @@ def scheduler_loop() -> None:
             time.sleep(min(remaining, 60))
         while True:
             with OPERATION_LOCK:
+                if not daily_catchup_due():
+                    break
                 try:
                     start_job("daily", daily_pipeline)
                     break
@@ -217,9 +290,11 @@ def scheduler_loop() -> None:
 
 def journal_payload() -> dict[str, Any]:
     journals = read_json(DATA_DIR / "journals.json", {}).get("journals", [])
+    with JOB_LOCK:
+        job = dict(JOB)
     return {
         "journals": journals,
-        "job": {**JOB, "next_run": next_run().isoformat()},
+        "job": {**job, "next_run": next_run().isoformat()},
         "timezone": "Asia/Shanghai",
         "schedule": "01:00",
     }
@@ -320,7 +395,8 @@ def sync_if_needed() -> None:
 
 def main() -> int:
     sync_if_needed()
-    save_job()
+    restore_job()
+    start_startup_catchup()
     threading.Thread(target=scheduler_loop, daemon=True).start()
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     print(

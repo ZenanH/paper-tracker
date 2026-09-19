@@ -6,6 +6,7 @@ LABEL org.opencontainers.image.title="paper-tracker" \
 
 ENV TZ=Asia/Shanghai
 
+RUN sed -i -E 's/^worker_processes[[:space:]]+auto;/worker_processes 1;/' /etc/nginx/nginx.conf
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # 显式指定站点根目录，避免依赖镜像默认 WORKDIR

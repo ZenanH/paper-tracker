@@ -2,7 +2,7 @@ import json
 import sys
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
@@ -14,6 +14,10 @@ import journal_manager
 
 
 class JournalManagementTests(unittest.TestCase):
+    def tearDown(self):
+        journal_manager.JOB.clear()
+        journal_manager.JOB.update(journal_manager.JOB_DEFAULTS)
+
     def test_runtime_data_bootstrap_creates_empty_persistent_layout(self):
         with tempfile.TemporaryDirectory() as directory:
             data_dir = Path(directory)
@@ -151,6 +155,58 @@ class JournalManagementTests(unittest.TestCase):
                 ["python3", "scripts/validate_data.py"],
             ],
         )
+
+    def test_restore_job_preserves_result_and_marks_running_as_interrupted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory)
+            (data_dir / "task-status.json").write_text(
+                json.dumps(
+                    {
+                        "status": "running",
+                        "kind": "daily",
+                        "message": "running",
+                        "started_at": "2026-09-19T01:00:00+08:00",
+                        "finished_at": None,
+                        "log": ["started"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.object(journal_manager, "DATA_DIR", data_dir):
+                journal_manager.restore_job()
+
+            self.assertEqual(journal_manager.JOB["status"], "failed")
+            self.assertIn("中断", journal_manager.JOB["message"])
+            persisted = json.loads(
+                (data_dir / "task-status.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(persisted["status"], "failed")
+
+    def test_daily_catchup_detects_stale_manifest(self):
+        timezone = ZoneInfo("Asia/Shanghai")
+        now = datetime(2026, 9, 19, 2, 0, tzinfo=timezone)
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory)
+            path = data_dir / "manifest.json"
+            path.write_text(json.dumps({"default_date": "2026-09-17"}), encoding="utf-8")
+            with patch.object(journal_manager, "DATA_DIR", data_dir):
+                self.assertTrue(journal_manager.daily_catchup_due(now))
+                path.write_text(json.dumps({"default_date": "2026-09-18"}), encoding="utf-8")
+                self.assertFalse(journal_manager.daily_catchup_due(now))
+
+    def test_weekly_reconciliation_due_uses_persistent_date(self):
+        with tempfile.TemporaryDirectory() as directory:
+            maintenance = Path(directory) / "maintenance-status.json"
+            with patch.object(journal_manager, "MAINTENANCE_PATH", maintenance):
+                self.assertTrue(journal_manager.reconciliation_due(date(2026, 9, 19)))
+                maintenance.write_text(
+                    json.dumps({"last_reconciled_date": "2026-09-13"}), encoding="utf-8"
+                )
+                self.assertFalse(journal_manager.reconciliation_due(date(2026, 9, 19)))
+                maintenance.write_text(
+                    json.dumps({"last_reconciled_date": "2026-09-12"}), encoding="utf-8"
+                )
+                self.assertTrue(journal_manager.reconciliation_due(date(2026, 9, 19)))
 
 
 if __name__ == "__main__":

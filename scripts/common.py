@@ -115,7 +115,7 @@ def parse_date_parts(value: Any) -> tuple[str | None, str]:
             parsed = datetime.fromisoformat(normalized)
             if parsed.tzinfo is not None:
                 parsed = parsed.astimezone(BEIJING)
-            return parsed.date().isoformat(), "datetime"
+                return parsed.date().isoformat(), "datetime"
         except (TypeError, ValueError):
             pass
     try:

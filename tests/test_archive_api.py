@@ -98,6 +98,17 @@ class ArchiveApiTests(unittest.TestCase):
         self.assertEqual(state["cleared_items"], {})
         self.assertEqual(state["favorites"], {})
 
+    def test_corrupt_archive_is_rejected_without_overwrite(self):
+        original = "{not valid json\n"
+        self.archive_file.write_text(original, encoding="utf-8")
+
+        with self.assertRaises(archive_api.ArchiveStateError):
+            archive_api.read_state()
+        with self.assertRaises(archive_api.ArchiveStateError):
+            archive_api.apply_archive({"action": "remove", "ids": ["anything"]})
+
+        self.assertEqual(self.archive_file.read_text(encoding="utf-8"), original)
+
     def test_favorite_and_unfavorite(self):
         article = {
             "id": "doi:10.1000/favorite",

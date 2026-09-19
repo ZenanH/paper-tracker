@@ -26,6 +26,16 @@ class CommonTests(unittest.TestCase):
             parse_date_parts({"date-parts": [[2026, 9, 16]], "date-time": "2026-09-15T16:30:00Z"}),
             ("2026-09-16", "datetime"),
         )
+        self.assertEqual(
+            parse_date_parts(
+                {"date-parts": [[2026, 9, 16]], "date-time": "2026-09-15T16:30:00"}
+            ),
+            ("2026-09-16", "date"),
+        )
+        self.assertEqual(
+            parse_date_parts({"date-time": "2026-09-15T16:30:00"}),
+            (None, "missing"),
+        )
         self.assertEqual(parse_date_parts(None), (None, "missing"))
 
 

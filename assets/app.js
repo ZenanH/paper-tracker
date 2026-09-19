@@ -49,6 +49,7 @@ const elements = {
   dailyToolbar: document.querySelector("#daily-toolbar"),
   dailyDate: document.querySelector("#daily-date"),
   historyToolbar: document.querySelector("#history-toolbar"),
+  historyDateControls: document.querySelector("#history-date-controls"),
   archivePrevious: document.querySelector("#archive-previous"),
   archiveNext: document.querySelector("#archive-next"),
   archiveYesterday: document.querySelector("#archive-yesterday"),
@@ -467,7 +468,9 @@ function renderGrouped(articles, supplementType = null, options = {}) {
     (all[article.journal_id] ||= []).push(article); return all;
   }, {});
   elements.list.innerHTML = Object.entries(groups).sort(([a], [b]) => {
-    return state.journalMap.get(a).name.localeCompare(state.journalMap.get(b).name);
+    const left = state.journalMap.get(a)?.name || a;
+    const right = state.journalMap.get(b)?.name || b;
+    return left.localeCompare(right);
   }).map(([journalId, items]) => {
     const journal = state.journalMap.get(journalId);
     if (!journal) return "";
@@ -524,6 +527,7 @@ function renderDaily() {
 
 // 历史及补录：历史（按日浏览）/ 补录（迟到补录 + 日期待核实）
 function renderHistory() {
+  elements.historyDateControls.hidden = state.mode === "supplements";
   if (state.mode === "supplements") return renderSupplements();
   const articles = state.day?.articles || [];
   const count = countVisible(articles);
