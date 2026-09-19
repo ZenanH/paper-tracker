@@ -118,9 +118,9 @@ python3 scripts/translate.py --limit 1000 --batch-size 8 --workers 2
 这两个目录均被 Git 和 Docker 构建上下文忽略。升级或替换容器不会覆盖其中的数据；迁移时只需备份这两个目录和 `.env`。
 
 ```bash
-# 运行（绑定 Tailscale IP 与本机回环）
+# 运行（动态读取本机 Tailscale IP，并同时绑定本机回环）
 docker run -d --name paper-tracker --restart unless-stopped \
-  -p <TAILSCALE_IP>:8899:80 \
+  -p "$(tailscale ip -4):8899:80" \
   -p 127.0.0.1:8899:80 \
   -e TZ=Asia/Shanghai \
   -v "$PWD/data:/usr/share/nginx/html/data:ro" \
@@ -132,6 +132,7 @@ docker run -d --name paper-tracker --restart unless-stopped \
 ```bash
 cp .env.example .env
 chmod 600 .env
+# 将 `tailscale ip -4` 的输出写入 .env 的 PAPER_TRACKER_TAILSCALE_IP
 mkdir -p data/days archive
 # 默认配置使用当前用户的 1000:1000；如 UID/GID 不同，同步修改 .env
 chown -R "$(id -u):$(id -g)" data archive

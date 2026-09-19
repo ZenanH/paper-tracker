@@ -4,7 +4,7 @@ services:
     container_name: paper-tracker
     restart: unless-stopped
     ports:
-      - "${PAPER_TRACKER_TAILSCALE_IP:-<TAILSCALE_IP>}:${PAPER_TRACKER_PORT:-8899}:80"
+      - "${PAPER_TRACKER_TAILSCALE_IP:?set PAPER_TRACKER_TAILSCALE_IP in .env}:${PAPER_TRACKER_PORT:-8899}:80"
       - "127.0.0.1:${PAPER_TRACKER_PORT:-8899}:80"
     environment:
       - TZ=Asia/Shanghai
