@@ -428,6 +428,8 @@ svg { width: 1.1rem; height: 1.1rem; stroke-width: 1.8; }
 .settings-journal-option strong, .settings-journal-option small { display: block; overflow-wrap: anywhere; }
 .settings-journal-option strong { font-size: 0.76rem; line-height: 1.35; }
 .settings-journal-option small { margin-top: 0.12rem; color: var(--muted); font-size: 0.66rem; line-height: 1.35; }
+.filter-settings-status { min-height: 1.1rem; margin: -0.25rem 0 0.45rem; color: var(--muted); font-size: 0.68rem; }
+.filter-settings-status.is-error { color: var(--danger); }
 .theme-control { width: fit-content; max-width: 100%; }
 .settings-run-button { width: 34px; height: 34px; flex: 0 0 auto; }
 .journal-add-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.55rem; }

@@ -31,6 +31,7 @@ from common import (
     translation_engine,
     write_json,
 )
+from title_filter import TitleFilter
 
 API = "https://api.crossref.org"
 MAILTO = os.environ.get("CROSSREF_MAILTO", "").strip()
@@ -312,6 +313,7 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
     client = CrossrefClient()
     changed_days: dict[str, dict[str, dict[str, Any]]] = {}
     removed_from_days: dict[str, set[str]] = {}
+    title_filter = TitleFilter(DATA_DIR, target)
 
     for journal in journals:
         try:
@@ -334,10 +336,40 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
             print(f"WARN {journal['name']}: {exc}")
             continue
 
+        candidates = []
         for item in items:
             article = article_from_item(item, journal, discovered_at)
             if not article:
                 continue
+            candidates.append(article)
+
+        filter_stats = {
+            "enabled": title_filter.enabled_for(journal["id"]),
+            "new_candidates": 0,
+            "classified": 0,
+            "cached": 0,
+            "excluded": 0,
+            "biomechanics_kept": 0,
+            "failed_open": 0,
+        }
+        if filter_stats["enabled"]:
+            new_candidates = [
+                article for article in candidates if article_key(article) not in existing
+            ]
+            filter_stats["new_candidates"] = len(new_candidates)
+            retained_new, classification_stats = title_filter.classify_articles(
+                new_candidates, journal["id"]
+            )
+            retained_keys = {article_key(article) for article in retained_new}
+            candidates = [
+                article
+                for article in candidates
+                if article_key(article) in existing or article_key(article) in retained_keys
+            ]
+            filter_stats.update(classification_stats)
+        statuses[journal["id"]]["title_filter"] = filter_stats
+
+        for article in candidates:
             key = article_key(article)
             cached = translation_entries.get(
                 title_cache_key(article["title_en"], translation_engine())
@@ -427,6 +459,7 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
     supplements["updated_at"] = iso_now()
     write_json(DATA_DIR / "supplements.json", supplements)
     write_json(DATA_DIR / "collection-status.json", statuses)
+    title_filter.prune_and_save()
     prune(target)
     save_manifest(all_journals, target)
     print(f"Collection complete: mode={mode}, target={target.isoformat()}")

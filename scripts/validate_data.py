@@ -5,7 +5,7 @@ import json
 from datetime import date
 from pathlib import Path
 
-from common import DATA_DIR, article_key, iter_day_files, retention_start
+from common import DATA_DIR, article_key, iter_day_files, read_json, retention_start
 
 
 def main() -> int:
@@ -53,6 +53,22 @@ def main() -> int:
     assert not (supplement_keys["late_additions"] & supplement_keys["date_pending"])
     assert manifest["late_addition_count"] == len(supplements["late_additions"])
     assert manifest["date_pending_count"] == len(supplements["date_pending"])
+
+    filter_config = read_json(DATA_DIR / "filter-config.json", {})
+    filter_ids = filter_config.get("journal_ids", [])
+    assert isinstance(filter_ids, list), "filter-config journal_ids must be a list"
+    assert len(filter_ids) == len(set(filter_ids)), "filter-config journal_ids must be unique"
+    assert set(filter_ids) <= journal_ids, "filter-config contains unknown journal ids"
+    classifications = read_json(DATA_DIR / "title-classifications.json", {"entries": {}})
+    classification_entries = classifications.get("entries", {})
+    assert isinstance(classification_entries, dict), "title classification entries must be an object"
+    allowed_categories = {"keep", "medicine", "biology", "chemistry", "humanities", "uncertain"}
+    for entry in classification_entries.values():
+        assert entry.get("category") in allowed_categories, entry
+        confidence = entry.get("confidence")
+        assert isinstance(confidence, (int, float)) and not isinstance(confidence, bool), entry
+        assert 0 <= confidence <= 1, entry
+        assert set(entry.get("journal_ids", [])) <= journal_ids, entry
     print(f"Validated {len(files)} day files and {len(seen)} articles")
     return 0
 

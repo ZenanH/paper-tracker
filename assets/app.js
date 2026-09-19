@@ -26,6 +26,8 @@ const state = {
   archiveSelection: new Set(),
   admin: null,
   adminWasRunning: false,
+  filterJournalIds: new Set(),
+  filterDirty: false,
 };
 
 const elements = {
@@ -67,6 +69,10 @@ const elements = {
   journalNameInput: document.querySelector("#journal-name-input"),
   journalAddRun: document.querySelector("#journal-add-run"),
   journalRunNow: document.querySelector("#journal-run-now"),
+  titleFilterSummary: document.querySelector("#title-filter-summary"),
+  titleFilterList: document.querySelector("#title-filter-list"),
+  titleFilterSave: document.querySelector("#title-filter-save"),
+  titleFilterStatus: document.querySelector("#title-filter-status"),
 };
 
 let adminPollTimer = null;
@@ -220,6 +226,7 @@ function renderJournalAdmin() {
     elements.journalAdminList.replaceChildren();
     elements.journalAddRun.disabled = true;
     elements.journalRunNow.disabled = true;
+    renderTitleFilter();
     return;
   }
   const journals = payload.journals || [];
@@ -246,7 +253,39 @@ function renderJournalAdmin() {
         <i data-lucide="trash-2"></i>
       </button>
     </div>`).join("");
+  renderTitleFilter();
   renderIcons();
+}
+
+function renderTitleFilter() {
+  const payload = state.admin;
+  const journals = payload?.journals || state.journals;
+  const running = payload?.job?.status === "running";
+  const available = Boolean(payload);
+  const groups = groupBy(journals, "group");
+  elements.titleFilterSummary.textContent = available
+    ? `${state.filterJournalIds.size} / ${journals.length} 本启用`
+    : "管理服务暂不可用";
+  elements.titleFilterSave.disabled = !available || running || !state.filterDirty;
+  elements.titleFilterList.innerHTML = Object.entries(groups).map(([group, entries], index) => `
+    <details class="settings-journal-group" ${index === 0 ? "open" : ""}>
+      <summary class="settings-group-heading"><span>${escapeHTML(group)}</span><span>${entries.length}</span></summary>
+      ${entries.map((journal) => `
+        <label class="settings-journal-option">
+          <input type="checkbox" data-title-filter-journal="${escapeHTML(journal.id)}" ${state.filterJournalIds.has(journal.id) ? "checked" : ""} ${!available || running ? "disabled" : ""} />
+          <span><strong>${escapeHTML(journal.name)}</strong><small>${journal.origin === "user" ? "用户添加" : "镜像默认"}</small></span>
+        </label>`).join("")}
+    </details>`).join("");
+  elements.titleFilterList.querySelectorAll("[data-title-filter-journal]").forEach((input) => {
+    input.addEventListener("change", () => {
+      if (input.checked) state.filterJournalIds.add(input.dataset.titleFilterJournal);
+      else state.filterJournalIds.delete(input.dataset.titleFilterJournal);
+      state.filterDirty = true;
+      elements.titleFilterStatus.textContent = "设置尚未保存";
+      elements.titleFilterSummary.textContent = `${state.filterJournalIds.size} / ${journals.length} 本启用`;
+      elements.titleFilterSave.disabled = false;
+    });
+  });
 }
 
 async function adminRequest(path, options = {}) {
@@ -271,6 +310,9 @@ async function loadJournalAdmin(fromPoll = false) {
   try {
     const payload = await adminRequest("/journals");
     const wasRunning = state.adminWasRunning;
+    if (!state.filterDirty) {
+      state.filterJournalIds = new Set(payload.filter_journal_ids || []);
+    }
     state.admin = payload;
     state.adminWasRunning = payload.job?.status === "running";
     renderJournalAdmin();
@@ -282,6 +324,26 @@ async function loadJournalAdmin(fromPoll = false) {
   } catch (error) {
     state.admin = null;
     renderJournalAdmin();
+  }
+}
+
+async function saveTitleFilter() {
+  elements.titleFilterSave.disabled = true;
+  elements.titleFilterStatus.classList.remove("is-error");
+  elements.titleFilterStatus.textContent = "正在保存…";
+  try {
+    state.admin = await adminRequest("/filter", {
+      method: "POST",
+      body: JSON.stringify({ journal_ids: [...state.filterJournalIds] }),
+    });
+    state.filterJournalIds = new Set(state.admin.filter_journal_ids || []);
+    state.filterDirty = false;
+    elements.titleFilterStatus.textContent = "已保存，将从下一次采集的新论文开始生效。";
+    renderJournalAdmin();
+  } catch (error) {
+    elements.titleFilterStatus.classList.add("is-error");
+    elements.titleFilterStatus.textContent = `保存失败：${error.message}`;
+    elements.titleFilterSave.disabled = false;
   }
 }
 
@@ -1105,6 +1167,7 @@ function bindEvents() {
     if (event.key === "Enter") addJournalAndRun();
   });
   elements.journalRunNow.addEventListener("click", runDailyNow);
+  elements.titleFilterSave.addEventListener("click", saveTitleFilter);
   elements.journalAdminList.addEventListener("click", (event) => {
     const button = event.target.closest("[data-delete-journal]");
     if (button) deleteJournal(button.dataset.deleteJournal, button.dataset.journalName);

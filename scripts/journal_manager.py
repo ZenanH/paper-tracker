@@ -22,9 +22,11 @@ from journal_config import (
     add_journal,
     ensure_config,
     ensure_runtime_data,
+    filter_journal_ids,
     refresh_manifest,
     remove_journal,
     remove_journal_data,
+    update_filter_config,
 )
 
 PORT = int(os.environ.get("MANAGER_PORT", "8090"))
@@ -294,6 +296,11 @@ def journal_payload() -> dict[str, Any]:
         job = dict(JOB)
     return {
         "journals": journals,
+        "filter_journal_ids": [
+            journal_id
+            for journal_id in filter_journal_ids()
+            if journal_id in {journal["id"] for journal in journals}
+        ],
         "job": {**job, "next_run": next_run().isoformat()},
         "timezone": "Asia/Shanghai",
         "schedule": "01:00",
@@ -356,6 +363,17 @@ class Handler(BaseHTTPRequestHandler):
                 with OPERATION_LOCK:
                     start_job("manual", daily_pipeline)
                 self.send_json(202, journal_payload())
+                return
+            if self.request_path() == "/api/admin/filter":
+                payload = self.read_payload()
+                with OPERATION_LOCK:
+                    with JOB_LOCK:
+                        if JOB["status"] == "running":
+                            raise ValueError("任务运行期间不能修改标题过滤设置")
+                    journals = read_json(DATA_DIR / "journals.json", {}).get("journals", [])
+                    valid_ids = {journal["id"] for journal in journals}
+                    update_filter_config(payload.get("journal_ids"), valid_ids)
+                self.send_json(200, journal_payload())
                 return
             self.send_json(404, {"error": "not found"})
         except (ValueError, json.JSONDecodeError, UnicodeDecodeError) as exc:

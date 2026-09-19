@@ -25,9 +25,9 @@
     <link rel="shortcut icon" href="assets/favicon.ico?v=c3cd5d7ef3" />
     <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=44ad171dcf" />
     <link rel="mask-icon" href="assets/favicon.svg?v=25b680167f" color="#0f766e" />
-    <link rel="stylesheet" href="assets/styles.css?v=38505514a3" />
+    <link rel="stylesheet" href="assets/styles.css?v=fb7010e774" />
     <script src="assets/vendor/lucide.min.js?v=3411692820" defer></script>
-    <script src="assets/app.js?v=a4a2806919" type="module"></script>
+    <script src="assets/app.js?v=74e5f37432" type="module"></script>
   </head>
   <body>
     <a class="skip-link" href="#paper-list">跳到论文列表</a>
@@ -132,8 +132,8 @@
     <dialog class="settings-dialog" id="settings-dialog" aria-labelledby="settings-title">
       <div class="dialog-header">
         <div>
-          <p class="eyebrow">设置</p>
-          <strong id="settings-title">页面偏好</strong>
+          <p class="eyebrow">论文追踪</p>
+          <strong id="settings-title">设置</strong>
         </div>
         <button class="icon-button" id="close-settings" type="button" title="关闭" aria-label="关闭设置">
           <i data-lucide="x"></i>
@@ -150,6 +150,19 @@
           </div>
           <p class="settings-note">仅影响当前浏览器的显示范围，不改变服务端的采集范围。</p>
           <div id="settings-journal-list" class="settings-journal-list"></div>
+        </section>
+
+        <section class="settings-section">
+          <div class="settings-section-heading">
+            <div>
+              <strong>标题过滤</strong>
+              <span id="title-filter-summary">正在读取服务设置</span>
+            </div>
+            <button class="text-button compact-button is-primary" id="title-filter-save" type="button" disabled>保存</button>
+          </div>
+          <p class="settings-note">仅勾选的期刊会在新论文入库前调用 Luna，过滤高置信度的医学、生物、化学和文学/人文标题。生物力学始终保留；判断不确定或接口失败时也会保留。</p>
+          <div id="title-filter-status" class="filter-settings-status" role="status"></div>
+          <div id="title-filter-list" class="settings-journal-list"></div>
         </section>
 
         <section class="settings-section">

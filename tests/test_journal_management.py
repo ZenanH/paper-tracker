@@ -37,13 +37,30 @@ class JournalManagementTests(unittest.TestCase):
                 json.loads((data_dir / "translations.json").read_text(encoding="utf-8"))["entries"],
                 {},
             )
+            self.assertEqual(
+                json.loads((data_dir / "filter-config.json").read_text(encoding="utf-8"))["journal_ids"],
+                [],
+            )
+            self.assertTrue((data_dir / "title-classifications.json").exists())
+
+    def test_filter_config_validates_ids_and_survives_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory)
+            with patch.object(journal_config, "DATA_DIR", data_dir):
+                saved = journal_config.update_filter_config(["one", "two", "one"], {"one", "two"})
+                self.assertEqual(saved["journal_ids"], ["one", "two"])
+                self.assertEqual(journal_config.filter_journal_ids(), ["one", "two"])
+                journal_config.ensure_runtime_data()
+                self.assertEqual(journal_config.filter_journal_ids(), ["one", "two"])
+                with self.assertRaises(ValueError):
+                    journal_config.update_filter_config(["missing"], {"one", "two"})
 
     def test_add_and_remove_user_journal_in_persistent_config(self):
         with tempfile.TemporaryDirectory() as directory:
             config_path = Path(directory) / "journal-config.json"
             with patch.object(journal_config, "CONFIG_PATH", config_path), patch.object(
-                journal_config, "discover_metric_url", return_value=None
-            ):
+                journal_config, "DATA_DIR", Path(directory)
+            ), patch.object(journal_config, "discover_metric_url", return_value=None):
                 added = journal_config.add_journal("Nature")
                 self.assertEqual(added["id"], "nature")
                 self.assertEqual(added["group"], "一区")
@@ -55,6 +72,7 @@ class JournalManagementTests(unittest.TestCase):
                     if entry["name"] == "Nature"
                 ]
                 self.assertEqual(entries[0]["origin"], "user")
+                journal_config.update_filter_config(["nature"], {"nature"})
 
                 removed = journal_config.remove_journal("nature")
                 self.assertEqual(removed["name"], "Nature")
@@ -66,6 +84,7 @@ class JournalManagementTests(unittest.TestCase):
                         for entry in values
                     )
                 )
+                self.assertEqual(journal_config.filter_journal_ids(), [])
 
     def test_remove_journal_data_cleans_days_supplements_and_status(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -97,6 +116,17 @@ class JournalManagementTests(unittest.TestCase):
                 json.dumps({"remove-me": {"status": "ok"}, "keep-me": {"status": "ok"}}),
                 encoding="utf-8",
             )
+            (data_dir / "title-classifications.json").write_text(
+                json.dumps(
+                    {
+                        "entries": {
+                            "remove-only": {"journal_ids": ["remove-me"]},
+                            "shared": {"journal_ids": ["remove-me", "keep-me"]},
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
             with patch.object(journal_config, "DATA_DIR", data_dir):
                 removed_ids = journal_config.remove_journal_data("remove-me")
 
@@ -111,6 +141,11 @@ class JournalManagementTests(unittest.TestCase):
                 (data_dir / "collection-status.json").read_text(encoding="utf-8")
             )
             self.assertEqual(set(statuses), {"keep-me"})
+            classifications = json.loads(
+                (data_dir / "title-classifications.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(set(classifications["entries"]), {"shared"})
+            self.assertEqual(classifications["entries"]["shared"]["journal_ids"], ["keep-me"])
 
     def test_next_run_is_one_am_beijing(self):
         timezone = ZoneInfo("Asia/Shanghai")

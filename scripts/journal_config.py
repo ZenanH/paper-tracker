@@ -13,6 +13,7 @@ from typing import Any
 from common import (
     DATA_DIR,
     ROOT,
+    TITLE_FILTER_RULE_VERSION,
     iso_now,
     now_beijing,
     read_json,
@@ -26,6 +27,7 @@ DEFAULT_CONFIG = ROOT / "journal.json"
 CONFIG_PATH = Path(
     os.environ.get("PAPER_TRACKER_JOURNAL_CONFIG", DATA_DIR / "journal-config.json")
 ).expanduser().resolve()
+FILTER_RULE_VERSION = TITLE_FILTER_RULE_VERSION
 
 
 def normalized(value: str) -> str:
@@ -68,6 +70,16 @@ def ensure_runtime_data() -> None:
             "model": None,
             "engine": None,
             "updated_at": iso_now(),
+            "entries": {},
+        },
+        "filter-config.json": {
+            "updated_at": iso_now(),
+            "journal_ids": [],
+            "rule_version": FILTER_RULE_VERSION,
+        },
+        "title-classifications.json": {
+            "updated_at": iso_now(),
+            "rule_version": FILTER_RULE_VERSION,
             "entries": {},
         },
     }
@@ -215,7 +227,45 @@ def remove_journal(journal_id: str) -> dict[str, Any]:
         raise ValueError("未找到要删除的期刊")
     config["config_updated_at"] = iso_now()
     write_json(CONFIG_PATH, config)
+    remove_journal_from_filter(journal_id)
     return removed
+
+
+def filter_journal_ids() -> list[str]:
+    payload = read_json(DATA_DIR / "filter-config.json", {})
+    values = payload.get("journal_ids", []) if isinstance(payload, dict) else []
+    return list(dict.fromkeys(value for value in values if isinstance(value, str)))
+
+
+def update_filter_config(journal_ids: Any, valid_ids: set[str]) -> dict[str, Any]:
+    if not isinstance(journal_ids, list) or any(not isinstance(item, str) for item in journal_ids):
+        raise ValueError("过滤期刊必须是字符串数组")
+    selected = list(dict.fromkeys(journal_ids))
+    unknown = sorted(set(selected) - valid_ids)
+    if unknown:
+        raise ValueError("过滤列表包含未知期刊：" + ", ".join(unknown))
+    payload = {
+        "updated_at": iso_now(),
+        "journal_ids": selected,
+        "rule_version": FILTER_RULE_VERSION,
+    }
+    write_json(DATA_DIR / "filter-config.json", payload)
+    return payload
+
+
+def remove_journal_from_filter(journal_id: str) -> None:
+    path = DATA_DIR / "filter-config.json"
+    payload = read_json(path, {})
+    values = payload.get("journal_ids", []) if isinstance(payload, dict) else []
+    retained = [value for value in values if value != journal_id]
+    if retained == values:
+        return
+    payload.update(
+        updated_at=iso_now(),
+        journal_ids=retained,
+        rule_version=FILTER_RULE_VERSION,
+    )
+    write_json(path, payload)
 
 
 def remove_journal_data(journal_id: str) -> list[str]:
@@ -253,6 +303,24 @@ def remove_journal_data(journal_id: str) -> list[str]:
     statuses = read_json(statuses_path, {})
     statuses.pop(journal_id, None)
     write_json(statuses_path, statuses)
+
+    classifications_path = DATA_DIR / "title-classifications.json"
+    classifications = read_json(classifications_path, {})
+    entries = classifications.get("entries") if isinstance(classifications, dict) else None
+    if isinstance(entries, dict):
+        retained_entries = {}
+        for key, entry in entries.items():
+            if not isinstance(entry, dict):
+                continue
+            journal_ids = [
+                value for value in entry.get("journal_ids", []) if value != journal_id
+            ]
+            if journal_ids:
+                entry["journal_ids"] = journal_ids
+                retained_entries[key] = entry
+        classifications["entries"] = retained_entries
+        classifications["updated_at"] = iso_now()
+        write_json(classifications_path, classifications)
     return list(dict.fromkeys(removed_article_ids))
 
 

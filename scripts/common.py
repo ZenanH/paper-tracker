@@ -19,6 +19,7 @@ BEIJING = ZoneInfo("Asia/Shanghai")
 # Keep the default namespace stable for DOI-less article fallback IDs created by
 # earlier versions; translation caches pass their engine explicitly.
 TITLE_KEY_NAMESPACE = "facebook/nllb-200-distilled-600M"
+TITLE_FILTER_RULE_VERSION = "2026-09-19.1"
 
 
 def read_json(path: Path, default: Any = None) -> Any:

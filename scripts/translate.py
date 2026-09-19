@@ -214,14 +214,16 @@ def parse_json_value(value: Any) -> Any:
     return parsed
 
 
-def extract_translation_payload(response: dict[str, Any]) -> dict[str, Any]:
+def extract_translation_payload(
+    response: dict[str, Any], function_name: str = "translate_titles"
+) -> dict[str, Any]:
     choices = response.get("choices")
     if not isinstance(choices, list) or not choices:
         raise TranslationError("Translation API response has no choices")
     message = (choices[0] or {}).get("message") or {}
     for tool_call in message.get("tool_calls") or []:
         function = tool_call.get("function") or {}
-        if function.get("name") == "translate_titles":
+        if function.get("name") == function_name:
             payload = parse_json_value(function.get("arguments"))
             if isinstance(payload, dict):
                 return payload

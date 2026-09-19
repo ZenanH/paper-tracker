@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import collect
 import sync_cas
+import title_filter
 import update_metrics
 from collect import CrossrefClient, article_from_item, classify_title, gather_for_journal, publication_date
 from update_metrics import parse_metric
@@ -307,6 +308,60 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(old["articles"], [])
             self.assertEqual(old["journal_status"]["example"]["status"], "historical")
             self.assertEqual(len(new["articles"]), 1)
+
+    def test_selected_journal_filters_before_day_and_translation_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.prepare_collection_data(root)
+            (root / "filter-config.json").write_text(
+                json.dumps({"journal_ids": ["example"]}), encoding="utf-8"
+            )
+            item = {
+                "DOI": "10.1000/medical",
+                "title": ["Clinical treatment of a cardiac disease"],
+                "published-online": {"date-parts": [[2026, 9, 18]]},
+                "type": "journal-article",
+            }
+            config = title_filter.LLMConfig(
+                "https://example.test/v1", "secret", "luna"
+            )
+            with patch.object(
+                title_filter.TitleFilter, "_load_llm_config", return_value=config
+            ), patch.object(
+                title_filter,
+                "classify_llm_batch",
+                return_value=[{"category": "medicine", "confidence": 0.99}],
+            ):
+                self.run_collection(root, [item])
+
+            day = json.loads((root / "days" / "2026-09-18.json").read_text(encoding="utf-8"))
+            supplements = json.loads((root / "supplements.json").read_text(encoding="utf-8"))
+            translations = json.loads((root / "translations.json").read_text(encoding="utf-8"))
+            self.assertEqual(day["articles"], [])
+            self.assertEqual(supplements["late_additions"], [])
+            self.assertEqual(supplements["date_pending"], [])
+            self.assertEqual(translations["entries"], {})
+            self.assertEqual(day["journal_status"]["example"]["title_filter"]["excluded"], 1)
+
+    def test_unselected_journal_bypasses_title_classifier(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.prepare_collection_data(root)
+            (root / "filter-config.json").write_text(
+                json.dumps({"journal_ids": []}), encoding="utf-8"
+            )
+            item = {
+                "DOI": "10.1000/medical",
+                "title": ["Clinical treatment of a cardiac disease"],
+                "published-online": {"date-parts": [[2026, 9, 18]]},
+                "type": "journal-article",
+            }
+            with patch.object(title_filter, "classify_llm_batch") as classify:
+                self.run_collection(root, [item])
+
+            classify.assert_not_called()
+            day = json.loads((root / "days" / "2026-09-18.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(day["articles"]), 1)
 
 
 if __name__ == "__main__":
