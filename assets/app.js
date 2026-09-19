@@ -244,7 +244,8 @@ function journalArchiveControl(journalId) {
 
 function articleMarkup(article, supplementType = null, options = {}) {
   const href = escapeHTML(article.url || "#");
-  const translated = article.translation_status === "translated" && article.title_zh;
+  // 只要有中文标题就展示；归档条目可能不带 translation_status（历史数据兼容）
+  const translated = Boolean(article.title_zh);
   const detail = supplementType === "late_additions"
     ? `归档日期 ${escapeHTML(article.archived_date || article.published_date || "未知")}`
     : supplementType === "date_pending" ? `日期精度 ${escapeHTML(article.date_precision || "缺失")}` : "";
@@ -555,6 +556,7 @@ async function archiveArticles(articles) {
         title_zh: article.title_zh || "",
         url: article.url || "",
         doi: article.doi || "",
+        translation_status: article.translation_status || (article.title_zh ? "translated" : "pending"),
       })),
     });
     state.archive = { items: data.items || {}, updated_at: data.updated_at || null };

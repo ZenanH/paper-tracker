@@ -25,7 +25,10 @@ BEIJING = timezone(timedelta(hours=8))
 LOCK = threading.Lock()
 
 # 归档时保留的文章字段（日期文件会滚出保留窗口，故需自带元数据）
-ITEM_FIELDS = ("id", "journal_id", "date", "title_en", "title_zh", "url", "doi")
+ITEM_FIELDS = (
+    "id", "journal_id", "date", "title_en", "title_zh",
+    "url", "doi", "translation_status",
+)
 MAX_BODY = 2 * 1024 * 1024
 
 
