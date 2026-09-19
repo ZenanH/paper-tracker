@@ -86,6 +86,7 @@ python3 scripts/translate.py --limit 1000 --batch-size 8 --workers 2
 | **每日论文** | 固定展示昨日论文，日期不可更改；勾选即归档 |
 | **历史及补录** | 下分两个小标签：**历史**（按日浏览，范围滚动三个月）、**补录**（迟到补录 + 日期待核实） |
 | **已归档** | 按论文日期展示已读记录，默认昨日，可切换到前三个月内任意日期 |
+| **收藏** | 集中展示主动收藏的论文，按期刊分组，不受归档状态切换影响 |
 
 ## 已归档
 
@@ -101,6 +102,10 @@ python3 scripts/translate.py --limit 1000 --batch-size 8 --workers 2
 归档状态由 `archive-api` 服务持久化（容器内部服务，不对外暴露端口，经 nginx `/api/` 反代），
 存储在 `archive/archive.json`，跨设备共享、清浏览器缓存不丢失。
 
+## 收藏
+
+「每日论文」「历史及补录」（包括补录）和「已归档」的每篇论文右侧都有星标按钮。收藏与已读状态互相独立：归档、清空归档、恢复归档或恢复为未读都不会取消收藏；在「收藏」标签再次点击星标即可取消。收藏同样持久化在 `archive/archive.json`，不会随容器升级丢失，也不会因论文日期滚出三个月查询窗口而自动删除。
+
 完整约定见 [AGENTS.md](AGENTS.md)。
 
 ## Docker 运行
@@ -108,7 +113,7 @@ python3 scripts/translate.py --limit 1000 --batch-size 8 --workers 2
 `Dockerfile` 用 nginx:alpine 承载静态站点，`Dockerfile.tasks` 承载采集、翻译和数据维护任务。镜像只包含代码与默认期刊种子，不包含运行中的论文、翻译或归档数据。
 
 - `PAPER_TRACKER_DATA_DIR`：论文、补录、翻译缓存、指标、运行时期刊配置，默认 `./data`
-- `PAPER_TRACKER_ARCHIVE_DIR`：已读与清空归档状态，默认 `./archive`
+- `PAPER_TRACKER_ARCHIVE_DIR`：已读、清空归档与收藏状态，默认 `./archive`
 
 这两个目录均被 Git 和 Docker 构建上下文忽略。升级或替换容器不会覆盖其中的数据；迁移时只需备份这两个目录和 `.env`。
 

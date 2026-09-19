@@ -269,12 +269,30 @@ svg { width: 1.1rem; height: 1.1rem; stroke-width: 1.8; }
 }
 .journal-check:hover span { color: var(--accent-dark); }
 
-/* 单篇：勾选框左置，正文右移 */
-.article-item.has-check { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.7rem; padding-left: 1.15rem; }
+/* 单篇：勾选框左置、收藏按钮右置，正文宽度保持稳定 */
+.article-item.has-favorite { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: 0.7rem; }
+.article-item.has-check { grid-template-columns: auto minmax(0, 1fr) 40px; padding-left: 1.15rem; }
 .article-item.has-check::before { display: none; }
 .article-item.has-check .article-check { margin-top: 0.2rem; }
 .article-body { min-width: 0; }
 .article-item.has-check + .article-item.has-check { border-top: 1px solid var(--line-subtle); }
+.favorite-button {
+  width: 36px;
+  height: 36px;
+  align-self: start;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+.favorite-button:hover { border-color: var(--warm-line); color: var(--warm); background: var(--warm-soft); }
+.favorite-button.is-active { color: var(--warm); }
+.favorite-button.is-active svg { fill: currentColor; }
+.favorite-button:disabled { opacity: 0.45; cursor: wait; }
 
 /* 归档页：条目间分隔更清楚 */
 #paper-list .journal-section .article-item .article-check input { }
@@ -443,7 +461,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 
 @media (max-width: 860px) {
   .header-inner { grid-template-columns: 1fr auto; padding: 0 1rem; }
-  .view-tabs { order: 3; grid-column: 1 / -1; width: 100%; height: 46px; justify-content: center; }
+  .view-tabs { order: 3; grid-column: 1 / -1; width: 100%; height: 46px; justify-content: center; gap: 1rem; }
   .site-header { position: relative; }
   .app-shell { display: block; padding: 0 1rem; }
   .workspace { padding-top: 1.2rem; }
@@ -456,6 +474,9 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 @media (max-width: 580px) {
   .header-inner { min-height: 62px; }
   .brand-mark { width: 34px; height: 34px; }
+  .view-tabs { gap: 0; }
+  .view-tab { flex: 1; min-width: 0; padding: 0; font-size: 0.78rem; white-space: nowrap; }
+  .tab-count { min-width: 1.15rem; height: 1.15rem; margin-left: 0.12rem; padding: 0 0.2rem; font-size: 0.62rem; }
   .date-controls { width: 100%; display: grid; grid-template-columns: 40px minmax(0, 1fr) 40px; }
   .date-field { justify-content: center; }
   .date-field input { width: 122px; }
@@ -466,6 +487,8 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
   .journal-header { grid-template-columns: minmax(0, 1fr); gap: 0.45rem; }
   .journal-count { justify-self: start; }
   .article-title-zh { font-size: 0.96rem; }
+  .article-item.has-favorite { grid-template-columns: minmax(0, 1fr) 36px; gap: 0.45rem; }
+  .article-item.has-check { grid-template-columns: auto minmax(0, 1fr) 36px; }
   .update-status { align-items: flex-start; }
   .settings-dialog { width: min(94vw, 620px); }
   .journal-add-row { grid-template-columns: minmax(0, 1fr); }

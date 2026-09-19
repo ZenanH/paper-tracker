@@ -88,7 +88,7 @@ def remove_from_archive(journal_id: str, article_ids: list[str]) -> None:
             archive = json.load(response)
         article_ids.extend(
             item_id
-            for bucket in ("items", "cleared_items")
+            for bucket in ("items", "cleared_items", "favorites")
             for item_id, item in (archive.get(bucket) or {}).items()
             if item.get("journal_id") == journal_id
         )
@@ -97,7 +97,7 @@ def remove_from_archive(journal_id: str, article_ids: list[str]) -> None:
     article_ids = list(dict.fromkeys(article_ids))
     for offset in range(0, len(article_ids), 500):
         body = json.dumps(
-            {"action": "remove", "ids": article_ids[offset : offset + 500]}
+            {"action": "remove_all", "ids": article_ids[offset : offset + 500]}
         ).encode("utf-8")
         request = urllib.request.Request(
             ARCHIVE_API,

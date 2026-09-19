@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""已归档状态服务 —— 为论文追踪提供持久化的「已读归档」存储。
+"""论文状态服务 —— 为论文追踪提供持久化的归档与收藏存储。
 
 接口：
-  GET  /api/archive   → {"updated_at":..., "items":{...}, "cleared_items":{...}}
-  POST /api/archive   → add/remove/clear/restore_cleared
+  GET  /api/archive   → {"updated_at":..., "items":{...}, "cleared_items":{...}, "favorites":{...}}
+  POST /api/archive   → add/remove/clear/restore_cleared/favorite/unfavorite/remove_all
   GET  /api/healthz   → 健康检查
 
 存储：ARCHIVE_FILE（默认 /archive/archive.json），原子写入，权限 0644。
@@ -38,7 +38,7 @@ def now_iso() -> str:
 
 
 def empty_state() -> dict:
-    return {"updated_at": None, "items": {}, "cleared_items": {}}
+    return {"updated_at": None, "items": {}, "cleared_items": {}, "favorites": {}}
 
 
 def retention_cutoff() -> str | None:
@@ -78,7 +78,7 @@ def read_state() -> dict:
         return empty_state()
     if not isinstance(data, dict):
         return empty_state()
-    for bucket_name in ("items", "cleared_items"):
+    for bucket_name in ("items", "cleared_items", "favorites"):
         if not isinstance(data.get(bucket_name), dict):
             data[bucket_name] = {}
     data.setdefault("updated_at", None)
@@ -121,22 +121,36 @@ def clean_item(raw: dict) -> dict | None:
 def apply_archive(payload: dict) -> dict:
     """在锁内读改写，返回新状态。"""
     action = str(payload.get("action") or "").strip()
-    if action not in {"add", "remove", "clear", "restore_cleared"}:
-        raise ValueError("action 必须是 add、remove、clear 或 restore_cleared")
+    allowed_actions = {
+        "add", "remove", "clear", "restore_cleared",
+        "favorite", "unfavorite", "remove_all",
+    }
+    if action not in allowed_actions:
+        raise ValueError(
+            "action 必须是 add、remove、clear、restore_cleared、favorite、unfavorite 或 remove_all"
+        )
 
     with LOCK:
         state = read_state()
         items = state["items"]
         cleared_items = state["cleared_items"]
+        favorites = state["favorites"]
         changed = prune_state(state)
 
-        if action == "add":
+        if action in {"add", "favorite"}:
             raw_items = payload.get("items")
             if not isinstance(raw_items, list):
-                raise ValueError("add 需要 items 数组")
+                raise ValueError(f"{action} 需要 items 数组")
             for raw in raw_items:
                 item = clean_item(raw)
                 if not item:
+                    continue
+                if action == "favorite":
+                    merged = dict(favorites.get(item["id"]) or {})
+                    merged.update(item)
+                    merged["favorited_at"] = merged.get("favorited_at") or now_iso()
+                    favorites[item["id"]] = merged
+                    changed = True
                     continue
                 merged = dict(items.get(item["id"]) or cleared_items.pop(item["id"], None) or {})
                 merged.update(item)
@@ -159,6 +173,19 @@ def apply_archive(payload: dict) -> dict:
                     continue
                 removed = items.pop(raw_id, None)
                 removed = cleared_items.pop(raw_id, None) or removed
+                changed = removed is not None or changed
+        elif action == "unfavorite":
+            for raw_id in raw_ids:
+                if not isinstance(raw_id, str):
+                    continue
+                changed = favorites.pop(raw_id, None) is not None or changed
+        elif action == "remove_all":
+            for raw_id in raw_ids:
+                if not isinstance(raw_id, str):
+                    continue
+                removed = items.pop(raw_id, None)
+                removed = cleared_items.pop(raw_id, None) or removed
+                removed = favorites.pop(raw_id, None) or removed
                 changed = removed is not None or changed
         elif action == "clear":
             for raw_id in raw_ids:

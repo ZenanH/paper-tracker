@@ -22,7 +22,7 @@ const state = {
   supplements: null,
   theme: "system",
   settingsGroups: {},
-  archive: { items: {}, cleared_items: {}, updated_at: null },
+  archive: { items: {}, cleared_items: {}, favorites: {}, updated_at: null },
   archiveSelection: new Set(),
   admin: null,
   adminWasRunning: false,
@@ -40,6 +40,7 @@ const elements = {
   updateStatus: document.querySelector("#update-status"),
   archiveToolbar: document.querySelector("#archive-toolbar"),
   archiveCount: document.querySelector("#archive-count"),
+  favoriteCount: document.querySelector("#favorite-count"),
   archiveSelection: document.querySelector("#archive-selection"),
   archiveSelectAll: document.querySelector("#archive-select-all"),
   archiveNone: document.querySelector("#archive-none"),
@@ -198,6 +199,7 @@ function normalizeArchive(data) {
   return {
     items: data && typeof data.items === "object" && data.items ? data.items : {},
     cleared_items: data && typeof data.cleared_items === "object" && data.cleared_items ? data.cleared_items : {},
+    favorites: data && typeof data.favorites === "object" && data.favorites ? data.favorites : {},
     updated_at: data?.updated_at || null,
   };
 }
@@ -412,14 +414,30 @@ function articleMarkup(article, supplementType = null, options = {}) {
     : kind === "date_pending" ? `日期精度 ${escapeHTML(article.date_precision || "缺失")}` : "";
   const control = options.control || null;
   const footnote = options.footnote || "";
-  return `<li class="article-item${control ? " has-check" : ""}">
+  const favorite = favoriteControl(article);
+  return `<li class="article-item has-favorite${control ? " has-check" : ""}">
     ${control || ""}
     <div class="article-body">
       ${translated ? `<a class="article-title-zh" href="${href}" target="_blank" rel="noopener noreferrer">${escapeHTML(article.title_zh)}</a>` : `<span class="pending-translation">中文翻译处理中</span>`}
       <a class="article-title-en" href="${href}" target="_blank" rel="noopener noreferrer">${escapeHTML(article.title_en || "无标题")}</a>
       ${(detail || article.doi || footnote) ? `<div class="article-footnote">${detail ? `<span>${detail}</span>` : ""}${article.doi ? `<span>DOI ${escapeHTML(article.doi)}</span>` : ""}${footnote ? `<span>${footnote}</span>` : ""}</div>` : ""}
     </div>
+    ${favorite}
   </li>`;
+}
+
+function isFavorite(articleId) {
+  return Boolean(articleId && state.archive.favorites[articleId]);
+}
+
+function favoriteControl(article) {
+  const articleId = article.id || "";
+  const active = isFavorite(articleId);
+  const label = active ? "取消收藏" : "收藏这篇论文";
+  return `<button class="favorite-button${active ? " is-active" : ""}" type="button"
+    data-favorite-article="${escapeHTML(articleId)}" aria-pressed="${active}" aria-label="${label}" title="${label}">
+    <i data-lucide="star"></i>
+  </button>`;
 }
 
 // 单篇「已读」勾选
@@ -585,6 +603,42 @@ function renderArchive() {
   renderIcons();
 }
 
+function favoriteItemsVisible() {
+  return Object.values(state.archive.favorites)
+    .filter((item) => state.selected.has(item.journal_id))
+    .sort((left, right) => String(right.favorited_at || "").localeCompare(String(left.favorited_at || "")));
+}
+
+function renderFavorites() {
+  const items = favoriteItemsVisible();
+  elements.heading.replaceChildren();
+  elements.status.hidden = true;
+  elements.status.replaceChildren();
+  if (!items.length) {
+    elements.list.innerHTML = '<div class="empty-state"><div><i data-lucide="star"></i><strong>还没有收藏论文</strong><span>点击论文题目右侧的星标，即可在这里集中查看。</span></div></div>';
+    renderIcons();
+    return;
+  }
+  const groups = items.reduce((all, item) => {
+    (all[item.journal_id] ||= []).push(item); return all;
+  }, {});
+  elements.list.innerHTML = Object.entries(groups).sort(([a], [b]) => {
+    const nameA = state.journalMap.get(a)?.name || a;
+    const nameB = state.journalMap.get(b)?.name || b;
+    return nameA.localeCompare(nameB);
+  }).map(([journalId, entries]) => {
+    const journal = state.journalMap.get(journalId);
+    const name = journal?.name || journalId;
+    return `<section class="journal-section" id="journal-${escapeHTML(journalId)}">
+      ${journalHeader(journal || { name, cas: {}, impact_factor: {} }, entries.length)}
+      <ol class="article-list">${entries.map((entry) => articleMarkup(entry, null, {
+        footnote: entry.favorited_at ? `收藏于 ${escapeHTML(formatDateTime(entry.favorited_at))}` : "",
+      })).join("")}</ol>
+    </section>`;
+  }).join("");
+  renderIcons();
+}
+
 function updateArchiveSelectionUI() {
   const count = state.archiveSelection.size;
   elements.archiveSelection.textContent = count ? `已选 ${count} 篇` : "未选择";
@@ -595,6 +649,7 @@ function updateArchiveSelectionUI() {
 function renderCurrent() {
   if (state.view === "daily") renderDaily();
   else if (state.view === "archive") renderArchive();
+  else if (state.view === "favorites") renderFavorites();
   else renderHistory();
   renderIcons();
 }
@@ -762,6 +817,12 @@ function updateArchiveCount() {
   elements.archiveClear.disabled = count === 0;
 }
 
+function updateFavoriteCount() {
+  const count = Object.keys(state.archive.favorites).length;
+  elements.favoriteCount.hidden = count === 0;
+  elements.favoriteCount.textContent = count;
+}
+
 function updateSupplementCount() {
   const articles = [
     ...(state.supplements?.late_additions || []),
@@ -782,6 +843,7 @@ async function loadArchive() {
     state.archive = normalizeArchive(null);
   }
   updateArchiveCount();
+  updateFavoriteCount();
   updateSupplementCount();
   updateSettingsArchiveUI();
 }
@@ -812,6 +874,37 @@ async function archiveArticles(articles) {
   updateArchiveCount();
   updateSupplementCount();
   updateSettingsArchiveUI();
+  renderCurrent();
+  return true;
+}
+
+function articlePayload(article) {
+  return {
+    id: article.id,
+    journal_id: article.journal_id,
+    date: article.archived_date || article.published_date || article.date || state.date || state.dailyDay?.date || state.manifest?.default_date || null,
+    title_en: article.title_en || "",
+    title_zh: article.title_zh || "",
+    url: article.url || "",
+    doi: article.doi || "",
+    translation_status: article.translation_status || (article.title_zh ? "translated" : "pending"),
+  };
+}
+
+async function toggleFavorite(article) {
+  if (!article?.id) return false;
+  const active = isFavorite(article.id);
+  try {
+    const payload = active
+      ? { action: "unfavorite", ids: [article.id] }
+      : { action: "favorite", items: [articlePayload(article)] };
+    state.archive = normalizeArchive(await postArchive(payload));
+  } catch (error) {
+    if (window.console && console.error) console.error("[paper-tracker] favorite failed", error);
+    showError(`${active ? "取消收藏" : "收藏"}失败：${error.message}`, () => toggleFavorite(article));
+    return false;
+  }
+  updateFavoriteCount();
   renderCurrent();
   return true;
 }
@@ -868,10 +961,20 @@ async function restoreClearedArchive(ids) {
 
 function currentArticles() {
   if (state.view === "daily") return state.dailyDay?.articles || [];
+  if (state.view === "archive") return Object.values(state.archive.items);
+  if (state.view === "favorites") return Object.values(state.archive.favorites);
   if (state.view === "history" && state.mode === "supplements") {
     return [...(state.supplements?.late_additions || []), ...(state.supplements?.date_pending || [])];
   }
   return state.day?.articles || [];
+}
+
+function findArticle(articleId) {
+  return currentArticles().find((item) => item.id === articleId)
+    || state.archive.items[articleId]
+    || state.archive.cleared_items[articleId]
+    || state.archive.favorites[articleId]
+    || null;
 }
 
 function bindEvents() {
@@ -953,6 +1056,16 @@ function bindEvents() {
       renderArchive();
     }
   });
+  elements.list.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-favorite-article]");
+    if (!button) return;
+    const article = findArticle(button.dataset.favoriteArticle);
+    if (!article) return;
+    button.disabled = true;
+    toggleFavorite(article).then((ok) => {
+      if (!ok && button.isConnected) button.disabled = false;
+    });
+  });
 
   elements.archiveSelectAll.addEventListener("click", () => {
     archiveItemsVisible().forEach((item) => state.archiveSelection.add(item.id));
@@ -1019,7 +1132,7 @@ async function start() {
     await Promise.all([loadArchive(), loadDailyDay()]);
     const params = new URLSearchParams(location.search);
     const requestedView = params.get("view");
-    state.view = ["history", "archive"].includes(requestedView) ? requestedView : "daily";
+    state.view = ["history", "archive", "favorites"].includes(requestedView) ? requestedView : "daily";
     state.mode = params.get("mode") === "supplements" ? "supplements" : "history";
     state.date = clampToRetention(params.get("date") || manifest.default_date);
     state.archiveDate = clampToRetention(params.get("adate") || manifest.default_date);

@@ -74,6 +74,9 @@ class ArchiveApiTests(unittest.TestCase):
                         "old-cleared": {"id": "old-cleared", "date": "2026-05-01"},
                         "current-cleared": {"id": "current-cleared", "date": "2026-09-18"},
                     },
+                    "favorites": {
+                        "old-favorite": {"id": "old-favorite", "date": "2026-05-01"},
+                    },
                 }
             ),
             encoding="utf-8",
@@ -82,15 +85,61 @@ class ArchiveApiTests(unittest.TestCase):
         state = archive_api.read_pruned_state()
         self.assertEqual(set(state["items"]), {"current-visible"})
         self.assertEqual(set(state["cleared_items"]), {"current-cleared"})
+        self.assertEqual(set(state["favorites"]), {"old-favorite"})
         persisted = json.loads(self.archive_file.read_text(encoding="utf-8"))
         self.assertEqual(set(persisted["items"]), {"current-visible"})
         self.assertEqual(set(persisted["cleared_items"]), {"current-cleared"})
 
-    def test_old_archive_files_gain_cleared_bucket(self):
+    def test_old_archive_files_gain_new_buckets(self):
         self.archive_file.write_text(
             json.dumps({"updated_at": None, "items": {}}), encoding="utf-8"
         )
-        self.assertEqual(archive_api.read_state()["cleared_items"], {})
+        state = archive_api.read_state()
+        self.assertEqual(state["cleared_items"], {})
+        self.assertEqual(state["favorites"], {})
+
+    def test_favorite_and_unfavorite(self):
+        article = {
+            "id": "doi:10.1000/favorite",
+            "journal_id": "example",
+            "date": "2026-09-18",
+            "title_en": "Favorite example",
+        }
+        state = archive_api.apply_archive({"action": "favorite", "items": [article]})
+        self.assertIn(article["id"], state["favorites"])
+        self.assertIn("favorited_at", state["favorites"][article["id"]])
+
+        state = archive_api.apply_archive({"action": "unfavorite", "ids": [article["id"]]})
+        self.assertNotIn(article["id"], state["favorites"])
+
+    def test_favorite_is_independent_from_archive_transitions(self):
+        article = {
+            "id": "doi:10.1000/independent",
+            "journal_id": "example",
+            "date": "2026-09-18",
+            "title_en": "Independent favorite",
+        }
+        archive_api.apply_archive({"action": "favorite", "items": [article]})
+        archive_api.apply_archive({"action": "add", "items": [article]})
+        archive_api.apply_archive({"action": "clear", "ids": [article["id"]]})
+        archive_api.apply_archive({"action": "restore_cleared", "ids": [article["id"]]})
+        state = archive_api.apply_archive({"action": "remove", "ids": [article["id"]]})
+        self.assertIn(article["id"], state["favorites"])
+        self.assertNotIn(article["id"], state["items"])
+        self.assertNotIn(article["id"], state["cleared_items"])
+
+    def test_remove_all_cleans_archive_and_favorite_state(self):
+        article = {
+            "id": "doi:10.1000/delete",
+            "journal_id": "example",
+            "date": "2026-09-18",
+            "title_en": "Deleted journal article",
+        }
+        archive_api.apply_archive({"action": "favorite", "items": [article]})
+        archive_api.apply_archive({"action": "add", "items": [article]})
+        state = archive_api.apply_archive({"action": "remove_all", "ids": [article["id"]]})
+        self.assertNotIn(article["id"], state["favorites"])
+        self.assertNotIn(article["id"], state["items"])
 
 
 if __name__ == "__main__":
