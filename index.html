@@ -25,9 +25,9 @@
     <link rel="shortcut icon" href="assets/favicon.ico?v=c3cd5d7ef3" />
     <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=44ad171dcf" />
     <link rel="mask-icon" href="assets/favicon.svg?v=25b680167f" color="#0f766e" />
-    <link rel="stylesheet" href="assets/styles.css?v=7e2803ed19" />
+    <link rel="stylesheet" href="assets/styles.css?v=f2e4b56c64" />
     <script src="assets/vendor/lucide.min.js?v=3411692820" defer></script>
-    <script src="assets/app.js?v=31f4e58ab0" type="module"></script>
+    <script src="assets/app.js?v=ce2a042421" type="module"></script>
   </head>
   <body>
     <a class="skip-link" href="#paper-list">跳到论文列表</a>
@@ -42,8 +42,8 @@
         </a>
         <nav class="view-tabs" aria-label="页面视图">
           <button class="view-tab is-active" type="button" data-view="daily">每日论文</button>
-          <button class="view-tab" type="button" data-view="supplements">
-            历史补录
+          <button class="view-tab" type="button" data-view="history">
+            历史及补录
             <span class="tab-count" id="supplement-count" hidden>0</span>
           </button>
           <button class="view-tab" type="button" data-view="archive">
@@ -62,6 +62,19 @@
     <main class="app-shell">
       <section class="workspace" aria-live="polite">
         <div class="toolbar" id="daily-toolbar">
+          <div class="toolbar-title">
+            <p class="eyebrow">每日论文</p>
+            <strong id="daily-date">昨日</strong>
+          </div>
+          <div class="toolbar-summary" id="toolbar-summary"></div>
+        </div>
+
+        <div class="update-status" id="update-status" role="status" aria-live="polite">
+          <span class="update-dot is-loading" aria-hidden="true"></span>
+          <span>正在读取数据状态</span>
+        </div>
+
+        <div class="toolbar" id="history-toolbar" hidden>
           <div class="date-controls">
             <button class="icon-button" id="previous-day" type="button" title="前一天" aria-label="前一天">
               <i data-lucide="chevron-left"></i>
@@ -76,29 +89,26 @@
             </button>
             <button class="text-button" id="return-yesterday" type="button">返回昨日</button>
           </div>
-          <div class="toolbar-summary" id="toolbar-summary"></div>
-        </div>
-
-        <div class="update-status" id="update-status" role="status" aria-live="polite">
-          <span class="update-dot is-loading" aria-hidden="true"></span>
-          <span>正在读取数据状态</span>
-        </div>
-
-        <div class="supplement-toolbar" id="supplement-toolbar" hidden>
-          <div>
-            <p class="eyebrow">历史补录</p>
-            <h1>归档后的新增与待核实记录</h1>
-          </div>
-          <div class="segmented-control" role="tablist" aria-label="补录分类">
-            <button class="is-active" type="button" role="tab" data-supplement="late_additions">迟到补录</button>
-            <button type="button" role="tab" data-supplement="date_pending">日期待核实</button>
+          <div class="segmented-control" role="tablist" aria-label="历史与补录">
+            <button class="is-active" type="button" role="tab" data-mode="history">历史</button>
+            <button type="button" role="tab" data-mode="supplements">补录</button>
           </div>
         </div>
 
         <div class="archive-toolbar" id="archive-toolbar" hidden>
-          <div>
-            <p class="eyebrow">已归档</p>
-            <h1>已读论文</h1>
+          <div class="date-controls">
+            <button class="icon-button" id="archive-previous" type="button" title="前一天" aria-label="前一天">
+              <i data-lucide="chevron-left"></i>
+            </button>
+            <label class="date-field">
+              <i data-lucide="calendar-days" aria-hidden="true"></i>
+              <span class="sr-only">选择日期</span>
+              <input id="archive-date-picker" type="date" />
+            </label>
+            <button class="icon-button" id="archive-next" type="button" title="后一天" aria-label="后一天">
+              <i data-lucide="chevron-right"></i>
+            </button>
+            <button class="text-button" id="archive-yesterday" type="button">返回昨日</button>
           </div>
           <div class="archive-actions">
             <span class="archive-selection" id="archive-selection">未选择</span>

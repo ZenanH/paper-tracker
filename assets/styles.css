@@ -178,6 +178,8 @@ svg { width: 1.1rem; height: 1.1rem; stroke-width: 1.8; }
 }
 .workspace { min-width: 0; padding: 2rem 0 5rem; }
 
+.toolbar-title { display: flex; flex-direction: column; gap: 0.2rem; }
+.toolbar-title strong { font-size: 1.02rem; }
 .toolbar, .supplement-toolbar {
   min-height: 52px;
   display: flex;

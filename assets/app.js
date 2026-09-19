@@ -8,8 +8,10 @@ const STORAGE_KEYS = {
 
 const state = {
   view: "daily",
-  supplement: "late_additions",
+  mode: "history",
   date: null,
+  dailyDay: null,
+  archiveDate: null,
   manifest: null,
   journals: [],
   journalMap: new Map(),
@@ -41,7 +43,12 @@ const elements = {
   archiveClear: document.querySelector("#archive-clear"),
   archiveRestore: document.querySelector("#archive-restore"),
   dailyToolbar: document.querySelector("#daily-toolbar"),
-  supplementToolbar: document.querySelector("#supplement-toolbar"),
+  dailyDate: document.querySelector("#daily-date"),
+  historyToolbar: document.querySelector("#history-toolbar"),
+  archivePrevious: document.querySelector("#archive-previous"),
+  archiveNext: document.querySelector("#archive-next"),
+  archiveYesterday: document.querySelector("#archive-yesterday"),
+  archiveDatePicker: document.querySelector("#archive-date-picker"),
   supplementCount: document.querySelector("#supplement-count"),
   sourceNote: document.querySelector("#source-note"),
   settingsDialog: document.querySelector("#settings-dialog"),
@@ -154,10 +161,11 @@ function setLoading() {
 function syncURL() {
   const params = new URLSearchParams();
   if (state.view !== "daily") params.set("view", state.view);
-  if (state.view === "daily" && state.date && state.date !== state.manifest.default_date) {
-    params.set("date", state.date);
+  if (state.view === "history") {
+    if (state.date) params.set("date", state.date);
+    if (state.mode === "supplements") params.set("mode", "supplements");
   }
-  if (state.view === "supplements") params.set("type", state.supplement);
+  if (state.view === "archive" && state.archiveDate) params.set("adate", state.archiveDate);
   history.replaceState(null, "", `${location.pathname}${params.size ? `?${params}` : ""}`);
 }
 
@@ -246,9 +254,11 @@ function articleMarkup(article, supplementType = null, options = {}) {
   const href = escapeHTML(article.url || "#");
   // 只要有中文标题就展示；归档条目可能不带 translation_status（历史数据兼容）
   const translated = Boolean(article.title_zh);
-  const detail = supplementType === "late_additions"
+  // 补录视图传 "auto"：按条目自身的 supplement_type 决定附加说明
+  const kind = supplementType === "auto" ? (article.supplement_type || "") : (supplementType || "");
+  const detail = kind === "late_additions"
     ? `归档日期 ${escapeHTML(article.archived_date || article.published_date || "未知")}`
-    : supplementType === "date_pending" ? `日期精度 ${escapeHTML(article.date_precision || "缺失")}` : "";
+    : kind === "date_pending" ? `日期精度 ${escapeHTML(article.date_precision || "缺失")}` : "";
   const control = options.control || null;
   const footnote = options.footnote || "";
   return `<li class="article-item${control ? " has-check" : ""}">
@@ -300,38 +310,69 @@ function renderGrouped(articles, supplementType = null, options = {}) {
   return visible.length;
 }
 
-function renderDaily() {
-  const articles = state.day?.articles || [];
-  const count = articles.filter((article) => (
+function countVisible(articles) {
+  return articles.filter((article) => (
     state.selected.has(article.journal_id)
     && article.content_type === "article"
     && !isArchived(article.id)
   )).length;
-  const archivedCount = articles.filter((article) => (
+}
+
+function countArchived(articles) {
+  return articles.filter((article) => (
     state.selected.has(article.journal_id)
     && article.content_type === "article"
     && isArchived(article.id)
   )).length;
-  const archivedNote = archivedCount ? ` · 已归档 ${archivedCount} 篇` : "";
-  elements.heading.innerHTML = `<h1>${escapeHTML(formatDate(state.date))}</h1><p>${count} 篇新论文 · 按首次在线发表日期归档${archivedNote}</p>`;
-  elements.summary.textContent = state.manifest.updated_at ? `最近更新 ${formatDateTime(state.manifest.updated_at)}` : "";
-  const failures = Object.values(state.day?.journal_status || {}).filter((status) => status.status === "failed").length;
+}
+
+function renderSourceFailures(day) {
+  const failures = Object.values(day?.journal_status || {}).filter((status) => status.status === "failed").length;
   elements.status.hidden = failures === 0;
   if (failures) {
     elements.status.innerHTML = `<i data-lucide="triangle-alert"></i><span>${failures} 本期刊本次获取失败，现有数据已保留。</span>`;
   } else {
     elements.status.replaceChildren();
   }
+}
+
+// 每日论文：固定展示昨日（manifest.default_date），日期不可更改
+function renderDaily() {
+  const date = state.manifest.default_date;
+  const articles = state.dailyDay?.articles || [];
+  const count = countVisible(articles);
+  const archivedCount = countArchived(articles);
+  const archivedNote = archivedCount ? ` · 已归档 ${archivedCount} 篇` : "";
+  elements.dailyDate.textContent = date ? formatDate(date) : "昨日";
+  elements.heading.innerHTML = `<h1>${escapeHTML(formatDate(date))}</h1><p>${count} 篇新论文 · 按首次在线发表日期归档${archivedNote}</p>`;
+  elements.summary.textContent = state.manifest.updated_at ? `最近更新 ${formatDateTime(state.manifest.updated_at)}` : "";
+  renderSourceFailures(state.dailyDay);
+  renderGrouped(articles, null, { archivable: true });
+}
+
+// 历史及补录：历史（按日浏览）/ 补录（迟到补录 + 日期待核实）
+function renderHistory() {
+  if (state.mode === "supplements") return renderSupplements();
+  const articles = state.day?.articles || [];
+  const count = countVisible(articles);
+  const archivedCount = countArchived(articles);
+  const archivedNote = archivedCount ? ` · 已归档 ${archivedCount} 篇` : "";
+  elements.heading.innerHTML = `<h1>${escapeHTML(formatDate(state.date))}</h1><p>${count} 篇论文 · 历史记录${archivedNote}</p>`;
+  renderSourceFailures(state.day);
   renderGrouped(articles, null, { archivable: true });
 }
 
 function renderSupplements() {
-  const articles = state.supplements?.[state.supplement] || [];
-  const label = state.supplement === "late_additions" ? "迟到补录" : "日期待核实";
-  elements.heading.innerHTML = `<h1>${label}</h1><p>${articles.length} 条记录 · ${state.supplement === "late_additions" ? "已补回原发表日期" : "尚未进入每日归档"}</p>`;
+  const late = state.supplements?.late_additions || [];
+  const pending = state.supplements?.date_pending || [];
+  const articles = [...late, ...pending];
+  const parts = [];
+  if (late.length) parts.push(`迟到补录 ${late.length}`);
+  if (pending.length) parts.push(`日期待核实 ${pending.length}`);
+  elements.heading.innerHTML = `<h1>补录</h1><p>${articles.length} 条记录${parts.length ? ` · ${parts.join(" · ")}` : ""}</p>`;
   elements.status.hidden = true;
   elements.status.replaceChildren();
-  renderGrouped(articles, state.supplement);
+  renderGrouped(articles, "auto");
 }
 
 function isArchived(articleId) {
@@ -341,19 +382,19 @@ function isArchived(articleId) {
 function archiveItemsVisible() {
   return Object.values(state.archive.items)
     .filter((item) => state.selected.has(item.journal_id))
+    .filter((item) => !state.archiveDate || String(item.date || "") === state.archiveDate)
     .sort((left, right) => String(right.archived_at || "").localeCompare(String(left.archived_at || "")));
 }
 
 function renderArchive() {
   const items = archiveItemsVisible();
-  const total = Object.keys(state.archive.items).length;
-  const hidden = total - items.length;
-  elements.heading.innerHTML = `<h1>已归档</h1><p>${items.length} 篇已读论文${hidden > 0 ? ` · 另有 ${hidden} 篇被期刊筛选隐藏` : ""}</p>`;
+  const dateLabel = state.archiveDate ? formatDate(state.archiveDate) : "全部";
+  elements.heading.innerHTML = `<h1>已归档</h1><p>${escapeHTML(dateLabel)} · ${items.length} 篇已读论文</p>`;
   elements.status.hidden = true;
   elements.status.replaceChildren();
 
   if (!items.length) {
-    elements.list.innerHTML = `<div class="empty-state"><div><i data-lucide="archive"></i><strong>${total ? "当前筛选下没有已归档论文" : "还没有已归档的论文"}</strong><span>${total ? "可在设置中恢复期刊显示。" : "在「每日论文」里勾选读过的论文或整本期刊即可归档。"}</span></div></div>`;
+    elements.list.innerHTML = `<div class="empty-state"><div><i data-lucide="archive"></i><strong>这一天还没有已归档论文</strong><span>在「每日论文」或「历史」里勾选读过的论文、或整本期刊的「全部已读」即可归档。</span></div></div>`;
     updateArchiveSelectionUI();
     renderIcons();
     return;
@@ -401,22 +442,30 @@ function updateArchiveSelectionUI() {
 function renderCurrent() {
   if (state.view === "daily") renderDaily();
   else if (state.view === "archive") renderArchive();
-  else renderSupplements();
+  else renderHistory();
   renderIcons();
 }
 
-async function loadDay(value) {
-  if (!value) value = state.manifest.default_date;
-  if (value < state.manifest.retention.start) value = state.manifest.retention.start;
-  if (value > state.manifest.retention.end) value = state.manifest.retention.end;
-  state.date = value;
-  elements.datePicker.value = value;
-  elements.previous.disabled = value <= state.manifest.retention.start;
-  elements.next.disabled = value >= state.manifest.retention.end;
+// 保留在历史窗口 [start, end] 内
+function clampToRetention(value) {
+  const { start, end } = state.manifest.retention;
+  if (!value) return state.manifest.default_date;
+  if (value < start) return start;
+  if (value > end) return end;
+  return value;
+}
+
+// 历史视图：载入指定日期
+async function loadHistoryDay(value) {
+  const date = clampToRetention(value);
+  state.date = date;
+  elements.datePicker.value = date;
+  elements.previous.disabled = date <= state.manifest.retention.start;
+  elements.next.disabled = date >= state.manifest.retention.end;
   setLoading();
   try {
-    state.day = await fetchJSON(`data/days/${value}.json`, true) || { date: value, articles: [], journal_status: {} };
-    renderDaily();
+    state.day = await fetchJSON(`data/days/${date}.json`, true) || { date, articles: [], journal_status: {} };
+    renderHistory();
   } catch (error) {
     elements.list.innerHTML = `<div class="error-state"><div><i data-lucide="cloud-off"></i><strong>无法加载该日数据</strong><span>${escapeHTML(error.message)}</span></div></div>`;
     renderIcons();
@@ -424,12 +473,39 @@ async function loadDay(value) {
   syncURL();
 }
 
+// 每日视图：固定昨日数据，只加载一次
+async function loadDailyDay() {
+  const date = state.manifest.default_date;
+  try {
+    state.dailyDay = await fetchJSON(`data/days/${date}.json`, true) || { date, articles: [], journal_status: {} };
+  } catch (error) {
+    state.dailyDay = { date, articles: [], journal_status: {} };
+  }
+}
+
+// 已归档视图：切换归档日期
+function setArchiveDate(value) {
+  const date = clampToRetention(value);
+  state.archiveDate = date;
+  elements.archiveDatePicker.value = date;
+  elements.archivePrevious.disabled = date <= state.manifest.retention.start;
+  elements.archiveNext.disabled = date >= state.manifest.retention.end;
+  state.archiveSelection.clear();
+  renderArchive();
+  syncURL();
+}
+
 function switchView(view) {
   state.view = view;
   document.querySelectorAll(".view-tab").forEach((tab) => tab.classList.toggle("is-active", tab.dataset.view === view));
   elements.dailyToolbar.hidden = view !== "daily";
-  elements.supplementToolbar.hidden = view !== "supplements";
+  elements.historyToolbar.hidden = view !== "history";
   elements.archiveToolbar.hidden = view !== "archive";
+  // 历史视图按需加载所选日期（首次进入或数据尚未就绪）
+  if (view === "history" && !state.day) {
+    loadHistoryDay(state.date);
+    return;
+  }
   renderCurrent();
   syncURL();
 }
@@ -551,7 +627,7 @@ async function archiveArticles(articles) {
       items: candidates.map((article) => ({
         id: article.id,
         journal_id: article.journal_id,
-        date: article.archived_date || article.published_date || state.date || null,
+        date: article.archived_date || article.published_date || article.date || state.date || state.dailyDay?.date || state.manifest?.default_date || null,
         title_en: article.title_en || "",
         title_zh: article.title_zh || "",
         url: article.url || "",
@@ -589,15 +665,22 @@ async function restoreArticles(ids) {
 
 function bindEvents() {
   document.querySelectorAll(".view-tab").forEach((tab) => tab.addEventListener("click", () => switchView(tab.dataset.view)));
-  elements.previous.addEventListener("click", () => loadDay(addDays(state.date, -1)));
-  elements.next.addEventListener("click", () => loadDay(addDays(state.date, 1)));
-  elements.yesterday.addEventListener("click", () => loadDay(state.manifest.default_date));
-  elements.datePicker.addEventListener("change", () => loadDay(elements.datePicker.value));
-  document.querySelectorAll("[data-supplement]").forEach((button) => button.addEventListener("click", () => {
-    state.supplement = button.dataset.supplement;
-    document.querySelectorAll("[data-supplement]").forEach((item) => item.classList.toggle("is-active", item === button));
-    renderSupplements(); syncURL();
+  // 历史及补录：日期控件
+  elements.previous.addEventListener("click", () => loadHistoryDay(addDays(state.date, -1)));
+  elements.next.addEventListener("click", () => loadHistoryDay(addDays(state.date, 1)));
+  elements.yesterday.addEventListener("click", () => loadHistoryDay(state.manifest.default_date));
+  elements.datePicker.addEventListener("change", () => loadHistoryDay(elements.datePicker.value));
+  // 历史及补录：历史 / 补录 子标签
+  document.querySelectorAll("[data-mode]").forEach((button) => button.addEventListener("click", () => {
+    state.mode = button.dataset.mode;
+    document.querySelectorAll("[data-mode]").forEach((item) => item.classList.toggle("is-active", item === button));
+    renderHistory(); syncURL();
   }));
+  // 已归档：日期控件
+  elements.archivePrevious.addEventListener("click", () => setArchiveDate(addDays(state.archiveDate, -1)));
+  elements.archiveNext.addEventListener("click", () => setArchiveDate(addDays(state.archiveDate, 1)));
+  elements.archiveYesterday.addEventListener("click", () => setArchiveDate(state.manifest.default_date));
+  elements.archiveDatePicker.addEventListener("change", () => setArchiveDate(elements.archiveDatePicker.value));
   document.querySelector("#settings-button").addEventListener("click", () => {
     renderSettings();
     elements.settingsDialog.showModal();
@@ -710,22 +793,32 @@ async function start() {
     state.settingsGroups = parseStorageJSON(STORAGE_KEYS.settingsGroups, {});
     normalizeJournalPreferences();
     state.supplements = supplements || { late_additions: [], date_pending: [] };
-    await loadArchive();
+    await Promise.all([loadArchive(), loadDailyDay()]);
     const params = new URLSearchParams(location.search);
     const requestedView = params.get("view");
-    state.view = ["supplements", "archive"].includes(requestedView) ? requestedView : "daily";
-    state.supplement = params.get("type") === "date_pending" ? "date_pending" : "late_additions";
-    state.date = params.get("date") || manifest.default_date;
-    elements.datePicker.min = manifest.retention.start;
-    elements.datePicker.max = manifest.retention.end;
+    state.view = ["history", "archive"].includes(requestedView) ? requestedView : "daily";
+    state.mode = params.get("mode") === "supplements" ? "supplements" : "history";
+    state.date = clampToRetention(params.get("date") || manifest.default_date);
+    state.archiveDate = clampToRetention(params.get("adate") || manifest.default_date);
+    for (const picker of [elements.datePicker, elements.archiveDatePicker]) {
+      picker.min = manifest.retention.start;
+      picker.max = manifest.retention.end;
+    }
+    elements.datePicker.value = state.date;
+    elements.archiveDatePicker.value = state.archiveDate;
+    elements.previous.disabled = state.date <= manifest.retention.start;
+    elements.next.disabled = state.date >= manifest.retention.end;
+    elements.archivePrevious.disabled = state.archiveDate <= manifest.retention.start;
+    elements.archiveNext.disabled = state.archiveDate >= manifest.retention.end;
     elements.sourceNote.textContent = journalData.source.label;
     const supplementsTotal = (manifest.late_addition_count || 0) + (manifest.date_pending_count || 0);
     elements.supplementCount.hidden = supplementsTotal === 0;
     elements.supplementCount.textContent = supplementsTotal;
     renderSettings();
     bindEvents();
-    document.querySelectorAll("[data-supplement]").forEach((item) => item.classList.toggle("is-active", item.dataset.supplement === state.supplement));
-    if (state.view === "daily") await loadDay(state.date);
+    document.querySelectorAll("[data-mode]").forEach((item) => item.classList.toggle("is-active", item.dataset.mode === state.mode));
+    // 历史视图需要该日数据
+    if (state.view === "history") await loadHistoryDay(state.date);
     switchView(state.view);
     renderUpdateStatus(state.manifest);
   } catch (error) {
