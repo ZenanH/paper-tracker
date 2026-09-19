@@ -185,3 +185,44 @@
 - 查看定时任务与容器的实际执行结果，报告未验证或失败的来源，不能仅凭配置存在宣布自动更新成功。
 - 给出使用与维护说明：数据来源、日期规则、固定分区版本、指标年份、失败状态、任务恢复和三个月保留规则。
 - 开发完成后提供实际可访问的站点地址；无法访问时说明具体阻碍，不虚构已上线结果。
+
+## 文档边界
+
+- `README.md` 保持简洁，只说明项目主要功能、Docker Compose 首次部署、访问、状态查看和升级命令。
+- 数据口径、采集策略、翻译协议、页面行为、持久化、镜像结构、手动任务、CI、测试和维护约定统一记录在本文件。
+- README、示例环境文件和 Compose 配置不得写入真实机器 IP、API Key、邮箱或其他用户私密信息；地址只使用环境变量、动态命令或占位符。
+
+## Docker 部署与维护
+
+- 需要 Docker、Docker Compose 和 Tailscale；站点同时绑定 `.env` 中的 `PAPER_TRACKER_TAILSCALE_IP` 与 `127.0.0.1`。
+- 首次部署复制 `.env.example` 为 `.env` 并设为 `0600`；可用 `tailscale ip -4` 动态取得地址，不得把结果提交到 Git。
+- `.env` 主要配置：
+  - `PAPER_TRACKER_TAILSCALE_IP`、`PAPER_TRACKER_PORT`：站点监听地址和端口。
+  - `PAPER_TRACKER_UID`、`PAPER_TRACKER_GID`：写入持久目录的宿主用户身份。
+  - `PAPER_TRACKER_DATA_DIR`：论文、补录、翻译缓存、指标和运行时期刊配置，默认 `./data`。
+  - `PAPER_TRACKER_ARCHIVE_DIR`：归档与收藏状态，默认 `./archive`。
+  - `CROSSREF_MAILTO`：Crossref 联系邮箱，可留空。
+  - `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`：OpenAI 兼容翻译接口配置。
+- 首次启动前创建 `data/days` 和 `archive`，并确保其属主与 `PAPER_TRACKER_UID:PAPER_TRACKER_GID` 一致。
+- 不使用 Docker 时，可在项目根目录运行 `python3 -m http.server 8000` 进行静态页面预览；必须通过 HTTP 访问，不能依赖直接打开 `index.html` 读取 JSON。
+- Compose 常驻三个服务：
+  - `paper-tracker`：nginx 静态站点镜像 `ghcr.io/zenanh/paper-tracker:latest`。
+  - `archive-api`：归档与收藏 API 镜像 `ghcr.io/zenanh/paper-tracker-archive:latest`，只在容器网络监听。
+  - `journal-manager`：期刊管理和北京时间 01:00 调度服务，使用 `ghcr.io/zenanh/paper-tracker-tasks:latest`。
+- `tasks` 为按需 profile，可通过 `docker compose --profile tasks run --rm tasks <命令>` 手动执行：
+  - `python3 scripts/sync_cas.py`：从固定快照重新生成期刊分区主数据。
+  - `python3 scripts/collect.py --mode daily`：采集日更及迟到补录。
+  - `python3 scripts/collect.py --mode backfill`：回填滚动三个月。
+  - `python3 scripts/translate.py --limit 300`：翻译待处理标题。
+  - `python3 scripts/translate.py --retranslate-existing --limit 300`：按当前模型分批重翻保留窗口。
+  - `python3 scripts/update_metrics.py`：检查影响因子。
+  - `python3 scripts/validate_data.py`：校验生成数据。
+- 常规部署命令为 `docker compose pull` 和 `docker compose up -d`；升级使用 `git pull --ff-only` 后执行 `docker compose pull`、`docker compose up -d --remove-orphans`。
+- 容器替换不得修改 `data/`、`archive/` 或 `.env`；迁移时须备份这三个位置。
+
+## GitHub CI 与镜像
+
+- `.github/workflows/docker-ci.yml` 在 push 和 Pull Request 时使用 `ubuntu-latest`、`windows-latest`、`macos-latest` 执行 Python 编译检查和单元测试。
+- 三平台测试通过后，在 Linux 构建站点、归档 API 和任务三个 `linux/amd64`、`linux/arm64` 多架构镜像。
+- 推送到 `main` 时发布 `latest` 和 `sha-*` 标签到 GHCR；Pull Request 只验证，不发布。
+- CI 使用仓库 `GITHUB_TOKEN` 发布镜像，不读取 LLM 或 Crossref 凭据；运行数据不进入 Git，也不会因日常采集触发镜像构建。
