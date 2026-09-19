@@ -520,13 +520,10 @@ function renderSupplements() {
   const late = state.supplements?.late_additions || [];
   const pending = state.supplements?.date_pending || [];
   const articles = [...late, ...pending];
-  const parts = [];
-  if (late.length) parts.push(`迟到补录 ${late.length}`);
-  if (pending.length) parts.push(`日期待核实 ${pending.length}`);
-  elements.heading.innerHTML = `<p>${articles.length} 条记录${parts.length ? ` · ${parts.join(" · ")}` : ""}</p>`;
+  elements.heading.replaceChildren();
   elements.status.hidden = true;
   elements.status.replaceChildren();
-  renderGrouped(articles, "auto");
+  renderGrouped(articles, "auto", { archivable: true });
 }
 
 function isArchived(articleId) {
@@ -765,6 +762,18 @@ function updateArchiveCount() {
   elements.archiveClear.disabled = count === 0;
 }
 
+function updateSupplementCount() {
+  const articles = [
+    ...(state.supplements?.late_additions || []),
+    ...(state.supplements?.date_pending || []),
+  ];
+  const count = articles.filter((article) => (
+    article.content_type === "article" && !isArchived(article.id)
+  )).length;
+  elements.supplementCount.hidden = count === 0;
+  elements.supplementCount.textContent = count;
+}
+
 async function loadArchive() {
   try {
     const data = await fetchJSON(ARCHIVE_API);
@@ -773,6 +782,7 @@ async function loadArchive() {
     state.archive = normalizeArchive(null);
   }
   updateArchiveCount();
+  updateSupplementCount();
   updateSettingsArchiveUI();
 }
 
@@ -800,6 +810,7 @@ async function archiveArticles(articles) {
     return false;
   }
   updateArchiveCount();
+  updateSupplementCount();
   updateSettingsArchiveUI();
   renderCurrent();
   return true;
@@ -818,6 +829,7 @@ async function restoreArticles(ids) {
   }
   ids.forEach((id) => state.archiveSelection.delete(id));
   updateArchiveCount();
+  updateSupplementCount();
   updateSettingsArchiveUI();
   renderCurrent();
   return true;
@@ -1022,9 +1034,7 @@ async function start() {
     elements.archivePrevious.disabled = state.archiveDate <= manifest.retention.start;
     elements.archiveNext.disabled = state.archiveDate >= manifest.retention.end;
     elements.sourceNote.textContent = journalData.source.label;
-    const supplementsTotal = (manifest.late_addition_count || 0) + (manifest.date_pending_count || 0);
-    elements.supplementCount.hidden = supplementsTotal === 0;
-    elements.supplementCount.textContent = supplementsTotal;
+    updateSupplementCount();
     renderSettings();
     bindEvents();
     document.querySelectorAll("[data-mode]").forEach((item) => item.classList.toggle("is-active", item.dataset.mode === state.mode));

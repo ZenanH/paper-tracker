@@ -11,7 +11,8 @@ from common import DATA_DIR, DAYS_DIR, iter_day_files
 def main() -> int:
     journals = json.loads((DATA_DIR / "journals.json").read_text(encoding="utf-8"))
     journal_ids = {journal["id"] for journal in journals["journals"]}
-    assert len(journal_ids) == 32, "Expected 32 configured journals"
+    assert journal_ids, "At least one configured journal is required"
+    assert len(journal_ids) == len(journals["journals"]), "Journal ids must be unique"
     manifest = json.loads((DATA_DIR / "manifest.json").read_text(encoding="utf-8"))
     files = list(iter_day_files())
     assert manifest["available_dates"] == [path.stem for path in files]

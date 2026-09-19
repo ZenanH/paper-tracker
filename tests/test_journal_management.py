@@ -14,6 +14,26 @@ import journal_manager
 
 
 class JournalManagementTests(unittest.TestCase):
+    def test_runtime_data_bootstrap_creates_empty_persistent_layout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory)
+            (data_dir / "journals.json").write_text(
+                json.dumps({"journals": [{"id": "example"}]}), encoding="utf-8"
+            )
+            with patch.object(journal_config, "DATA_DIR", data_dir):
+                journal_config.ensure_runtime_data()
+
+            manifest = json.loads(
+                (data_dir / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["journal_count"], 1)
+            self.assertEqual(manifest["available_dates"], [])
+            self.assertTrue((data_dir / "days").is_dir())
+            self.assertEqual(
+                json.loads((data_dir / "translations.json").read_text(encoding="utf-8"))["entries"],
+                {},
+            )
+
     def test_add_and_remove_user_journal_in_persistent_config(self):
         with tempfile.TemporaryDirectory() as directory:
             config_path = Path(directory) / "journal-config.json"

@@ -1,6 +1,7 @@
 .git
 .github
-scripts
+archive
+data
 tests
 *.md
 docker-compose.yml

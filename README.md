@@ -105,21 +105,21 @@ python3 scripts/translate.py --limit 1000 --batch-size 8 --workers 2
 
 ## Docker 运行
 
-`Dockerfile` 用 nginx:alpine 承载静态站点，`Dockerfile.tasks` 承载采集、翻译和数据维护任务。数据与翻译缓存写入 `PAPER_TRACKER_DATA_DIR`，归档状态写入 `PAPER_TRACKER_ARCHIVE_DIR`。
+`Dockerfile` 用 nginx:alpine 承载静态站点，`Dockerfile.tasks` 承载采集、翻译和数据维护任务。镜像只包含代码与默认期刊种子，不包含运行中的论文、翻译或归档数据。
+
+- `PAPER_TRACKER_DATA_DIR`：论文、补录、翻译缓存、指标、运行时期刊配置，默认 `./data`
+- `PAPER_TRACKER_ARCHIVE_DIR`：已读与清空归档状态，默认 `./archive`
+
+这两个目录均被 Git 和 Docker 构建上下文忽略。升级或替换容器不会覆盖其中的数据；迁移时只需备份这两个目录和 `.env`。
 
 ```bash
-# 构建
-docker build -t paper-tracker:latest .
-
 # 运行（绑定 Tailscale IP 与本机回环）
 docker run -d --name paper-tracker --restart unless-stopped \
   -p <TAILSCALE_IP>:8899:80 \
   -p 127.0.0.1:8899:80 \
   -e TZ=Asia/Shanghai \
   -v "$PWD/data:/usr/share/nginx/html/data:ro" \
-  -v "$PWD/index.html:/usr/share/nginx/html/index.html:ro" \
-  -v "$PWD/journal.json:/usr/share/nginx/html/journal.json:ro" \
-  paper-tracker:latest
+  ghcr.io/zenanh/paper-tracker:latest
 ```
 
 推荐使用 Compose：
@@ -127,8 +127,12 @@ docker run -d --name paper-tracker --restart unless-stopped \
 ```bash
 cp .env.example .env
 chmod 600 .env
-# 编辑 .env 后启动站点、归档 API 与期刊管理/调度服务
-docker compose up -d --build
+mkdir -p data/days archive
+# 默认配置使用当前用户的 1000:1000；如 UID/GID 不同，同步修改 .env
+chown -R "$(id -u):$(id -g)" data archive
+# 编辑 .env 后拉取 CI 发布的镜像并启动
+docker compose pull
+docker compose up -d
 ```
 
 访问：`http://<TAILSCALE_IP>:8899/`（Tailscale 组网内）或 `http://127.0.0.1:8899/`（本机）。
@@ -148,17 +152,22 @@ docker compose --profile tasks run --rm tasks python3 scripts/validate_data.py
 
 正常运行时无需手动执行这些命令；设置中的播放按钮可立即触发一次日更，管理容器仍会在下一次北京时间 01:00 自动运行。
 
-每次采集会按 `manifest.retention.start` 清理滚动三个自然月之外的日期文件、补录记录和不再被保留论文引用的翻译缓存。仅在改动 `index.html`、`assets/`、容器文件或 `nginx.conf` 时需要重建：
+每次采集会按 `manifest.retention.start` 清理滚动三个自然月之外的日期文件、补录记录和不再被保留论文引用的翻译缓存。
+
+代码推送到 `main` 后，CI 会发布新的 `latest` 镜像。部署端更新时执行：
 
 ```bash
-docker build -t paper-tracker:latest . && docker restart paper-tracker
+docker compose pull
+docker compose up -d --remove-orphans
 ```
+
+该操作只替换程序容器，不修改 `data/`、`archive/` 或 `.env`。首次使用空数据目录时，管理服务会自动创建基础文件；随后可在设置中点击运行，或等待北京时间次日 01:00 自动采集。
 
 ## GitHub CI
 
-`.github/workflows/docker-ci.yml` 在每次提交和 Pull Request 时运行：
+`.github/workflows/docker-ci.yml` 在每次代码提交和 Pull Request 时运行：
 
-- `ubuntu-latest`、`windows-latest`、`macos-latest`：执行 Python 语法检查、单元测试和静态数据校验。
+- `ubuntu-latest`、`windows-latest`、`macos-latest`：执行 Python 语法检查和单元测试。
 - `ubuntu-latest`：在三种系统测试全部通过后，构建站点、`archive-api` 与任务容器三个 Linux Docker 镜像。
 - 推送到 `main`：发布 `linux/amd64` 和 `linux/arm64` 多架构镜像到 GitHub Container Registry，并生成 `latest` 与 `sha-*` 标签。
 - Pull Request：只构建验证，不发布镜像。
@@ -172,3 +181,4 @@ ghcr.io/zenanh/paper-tracker-tasks:latest
 ```
 
 CI 使用仓库自带的 `GITHUB_TOKEN` 发布镜像，不需要配置 LLM 或 Crossref 凭据。
+运行论文数据不进入 Git，因此日常采集和翻译不会触发镜像构建。

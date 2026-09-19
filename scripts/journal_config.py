@@ -6,10 +6,20 @@ import json
 import os
 import urllib.parse
 import urllib.request
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
-from common import DATA_DIR, ROOT, iso_now, read_json, slugify, write_json
+from common import (
+    DATA_DIR,
+    ROOT,
+    iso_now,
+    now_beijing,
+    read_json,
+    retention_start,
+    slugify,
+    write_json,
+)
 
 LOCAL_SNAPSHOT = ROOT / "scripts" / "snapshot" / "FQBJCR2025-UTF8.csv"
 DEFAULT_CONFIG = ROOT / "journal.json"
@@ -42,6 +52,51 @@ def ensure_config() -> dict[str, Any]:
     seed["config_updated_at"] = iso_now()
     write_json(CONFIG_PATH, seed)
     return seed
+
+
+def ensure_runtime_data() -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    (DATA_DIR / "days").mkdir(parents=True, exist_ok=True)
+    defaults = {
+        "supplements.json": {
+            "updated_at": iso_now(),
+            "late_additions": [],
+            "date_pending": [],
+        },
+        "collection-status.json": {},
+        "translations.json": {
+            "model": None,
+            "engine": None,
+            "updated_at": iso_now(),
+            "entries": {},
+        },
+    }
+    for filename, payload in defaults.items():
+        path = DATA_DIR / filename
+        if not path.exists():
+            write_json(path, payload)
+
+    manifest_path = DATA_DIR / "manifest.json"
+    if not manifest_path.exists():
+        target = now_beijing().date() - timedelta(days=1)
+        journals = read_json(DATA_DIR / "journals.json", {}).get("journals", [])
+        write_json(
+            manifest_path,
+            {
+                "timezone": "Asia/Shanghai",
+                "default_date": target.isoformat(),
+                "updated_at": None,
+                "retention": {
+                    "start": retention_start(target).isoformat(),
+                    "end": target.isoformat(),
+                },
+                "available_dates": [],
+                "journal_count": len(journals),
+                "late_addition_count": 0,
+                "date_pending_count": 0,
+                "collection_summary": {"ok": 0, "failed": 0},
+            },
+        )
 
 
 def iter_entries(config: dict[str, Any]):

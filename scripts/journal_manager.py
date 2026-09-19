@@ -21,6 +21,7 @@ from journal_config import (
     CONFIG_PATH,
     add_journal,
     ensure_config,
+    ensure_runtime_data,
     refresh_manifest,
     remove_journal,
     remove_journal_data,
@@ -314,6 +315,7 @@ def sync_if_needed() -> None:
         or CONFIG_PATH.stat().st_mtime > journals_path.stat().st_mtime
     ):
         run_command(["python3", "scripts/sync_cas.py"])
+    ensure_runtime_data()
 
 
 def main() -> int:

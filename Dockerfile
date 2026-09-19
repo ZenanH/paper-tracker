@@ -12,10 +12,9 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 WORKDIR /usr/share/nginx/html
 COPY index.html journal.json ./
 COPY assets/ ./assets/
-COPY data/   ./data/
+RUN mkdir -p ./data
 
-# 不再预压缩：index.html / journal.json / data 均以只读卷挂载，
-# 镜像内的 .gz 会与挂载内容脱节，被 nginx gzip_static 优先命中而返回过期内容。
+# 论文与翻译数据只从运行时持久卷读取，不写入镜像。
 # 动态 gzip 由 nginx.conf 的 `gzip on` 承担。
 
 EXPOSE 80
