@@ -1,0 +1,9 @@
+services:
+  paper-tracker:
+    build: .
+    image: paper-tracker:latest
+    container_name: paper-tracker
+    restart: unless-stopped
+    ports:
+      - "<TAILSCALE_IP>:8899:80"   # Tailscale IP
+      - "127.0.0.1:8899:80"        # 本机回环

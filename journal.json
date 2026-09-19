@@ -1,0 +1,263 @@
+{
+  "updated": "2026-09-16",
+  "source": "中科院分区表 升级版 2025（官方平台 fenqubiao.com 停服前快照）",
+  "note": "顶刊单列，不计入中科院分区分类；三区及以下已剔除。",
+  "counts": {
+    "顶刊": 3,
+    "一区": 12,
+    "二区": 17,
+    "影响因子已补": 32
+  },
+  "categories": {
+    "顶刊": [
+      {
+        "name": "Communications Earth & Environment",
+        "url": "https://www.nature.com/commsenv/",
+        "if": 9.3,
+        "if_year": 2025
+      },
+      {
+        "name": "Nature Communications",
+        "url": "https://www.nature.com/ncomms/",
+        "if": 18.1,
+        "if_year": 2025
+      },
+      {
+        "name": "Science Advances",
+        "url": "https://www.science.org/journal/sciadv",
+        "if": 13.9,
+        "if_year": 2025
+      }
+    ],
+    "一区": [
+      {
+        "name": "Acta Geotechnica",
+        "url": "https://link.springer.com/journal/11440",
+        "cas_2025": "1区",
+        "top": true,
+        "if": 6.5,
+        "if_year": 2025
+      },
+      {
+        "name": "Archives of Computational Methods in Engineering",
+        "url": "https://link.springer.com/journal/11831",
+        "cas_2025": "1区",
+        "top": true,
+        "if": 12.9,
+        "if_year": 2025
+      },
+      {
+        "name": "Computer Methods in Applied Mechanics and Engineering",
+        "url": "https://www.sciencedirect.com/journal/computer-methods-in-applied-mechanics-and-engineering",
+        "cas_2025": "1区",
+        "top": true,
+        "if": 7.6,
+        "if_year": 2025
+      },
+      {
+        "name": "Computer-Aided Civil and Infrastructure Engineering",
+        "url": "https://onlinelibrary.wiley.com/journal/14678667",
+        "cas_2025": "1区",
+        "top": true,
+        "if": 9.2,
+        "if_year": 2025
+      },
+      {
+        "name": "Computers and Geotechnics",
+        "url": "https://www.sciencedirect.com/journal/computers-and-geotechnics",
+        "cas_2025": "1区",
+        "top": true,
+        "if": 7.1,
+        "if_year": 2025
+      },
+      {
+        "name": "Engineering Applications of Artificial Intelligence",
+        "url": "https://www.sciencedirect.com/journal/engineering-applications-of-artificial-intelligence",
+        "cas_2025": "1区",
+        "top": true,
+        "if": 9.0,
+        "if_year": 2025
+      },
+      {
+        "name": "Engineering Applications of Computational Fluid Mechanics",
+        "url": "https://www.tandfonline.com/journals/tcfm20",
+        "cas_2025": "1区",
+        "top": true,
+        "if": 6.2,
+        "if_year": 2025
+      },
+      {
+        "name": "International Journal of Mechanical Sciences",
+        "url": "https://www.sciencedirect.com/journal/international-journal-of-mechanical-sciences",
+        "cas_2025": "1区",
+        "top": true,
+        "if": 11.4,
+        "if_year": 2025
+      },
+      {
+        "name": "International Journal of Mining Science and Technology",
+        "url": "https://www.sciencedirect.com/journal/international-journal-of-mining-science-and-technology",
+        "cas_2025": "1区",
+        "top": true,
+        "if": 15.9,
+        "if_year": 2025
+      },
+      {
+        "name": "Journal of Advanced Research",
+        "url": "https://www.sciencedirect.com/journal/journal-of-advanced-research",
+        "cas_2025": "1区",
+        "top": true,
+        "if": 17.1,
+        "if_year": 2025
+      },
+      {
+        "name": "Journal of Earth Science",
+        "url": "https://link.springer.com/journal/12583",
+        "cas_2025": "1区",
+        "top": true,
+        "if": 4.8,
+        "if_year": 2025
+      },
+      {
+        "name": "Science China Technological Sciences",
+        "url": "https://link.springer.com/journal/11431",
+        "cas_2025": "1区",
+        "top": true,
+        "if": 5.1,
+        "if_year": 2025
+      }
+    ],
+    "二区": [
+      {
+        "name": "ACM Transactions on Mathematical Software",
+        "url": "https://dl.acm.org/journal/toms",
+        "cas_2025": "2区",
+        "if": 2.0,
+        "if_year": 2025
+      },
+      {
+        "name": "Applied Mathematical Modelling",
+        "url": "https://www.sciencedirect.com/journal/applied-mathematical-modelling",
+        "cas_2025": "2区",
+        "if": 5.5,
+        "if_year": 2025
+      },
+      {
+        "name": "Applied Mathematics and Computation",
+        "url": "https://www.sciencedirect.com/journal/applied-mathematics-and-computation",
+        "cas_2025": "2区",
+        "if": 3.2,
+        "if_year": 2025
+      },
+      {
+        "name": "Communications in Nonlinear Science and Numerical Simulation",
+        "url": "https://www.sciencedirect.com/journal/communications-in-nonlinear-science-and-numerical-simulation",
+        "cas_2025": "2区",
+        "if": 3.8,
+        "if_year": 2025
+      },
+      {
+        "name": "Computational Mechanics",
+        "url": "https://link.springer.com/journal/466",
+        "cas_2025": "2区",
+        "if": 4.5,
+        "if_year": 2025
+      },
+      {
+        "name": "Computer Physics Communications",
+        "url": "https://www.sciencedirect.com/journal/computer-physics-communications",
+        "cas_2025": "2区",
+        "if": 3.9,
+        "if_year": 2025
+      },
+      {
+        "name": "Computers & Structures",
+        "url": "https://www.sciencedirect.com/journal/computers-and-structures",
+        "cas_2025": "2区",
+        "if": 5.6,
+        "if_year": 2025
+      },
+      {
+        "name": "Engineering Analysis with Boundary Elements",
+        "url": "https://www.sciencedirect.com/journal/engineering-analysis-with-boundary-elements",
+        "cas_2025": "2区",
+        "if": 3.5,
+        "if_year": 2025
+      },
+      {
+        "name": "Engineering with Computers",
+        "url": "https://link.springer.com/journal/366",
+        "cas_2025": "2区",
+        "top": true,
+        "if": 4.1,
+        "if_year": 2025
+      },
+      {
+        "name": "Future Generation Computer Systems",
+        "url": "https://www.sciencedirect.com/journal/future-generation-computer-systems",
+        "cas_2025": "2区",
+        "if": 5.9,
+        "if_year": 2025
+      },
+      {
+        "name": "IEEE Transactions on Computers",
+        "url": "https://www.computer.org/csdl/journal/tc",
+        "cas_2025": "2区",
+        "if": 4.9,
+        "if_year": 2025
+      },
+      {
+        "name": "International Journal of Disaster Risk Science",
+        "url": "https://link.springer.com/journal/13753",
+        "cas_2025": "2区",
+        "if": 5.3,
+        "if_year": 2025
+      },
+      {
+        "name": "Journal of Computational Physics",
+        "url": "https://www.sciencedirect.com/journal/journal-of-computational-physics",
+        "cas_2025": "2区",
+        "top": true,
+        "if": 3.9,
+        "if_year": 2025
+      },
+      {
+        "name": "Journal of the Mechanics and Physics of Solids",
+        "url": "https://www.sciencedirect.com/journal/journal-of-the-mechanics-and-physics-of-solids",
+        "cas_2025": "2区",
+        "if": 6.2,
+        "if_year": 2025
+      },
+      {
+        "name": "Mathematics and Computers in Simulation",
+        "url": "https://www.sciencedirect.com/journal/mathematics-and-computers-in-simulation",
+        "cas_2025": "2区",
+        "top": true,
+        "if": 4.0,
+        "if_year": 2025
+      },
+      {
+        "name": "Powder Technology",
+        "url": "https://www.sciencedirect.com/journal/powder-technology",
+        "cas_2025": "2区",
+        "if": 5.5,
+        "if_year": 2025
+      },
+      {
+        "name": "Results in Engineering",
+        "url": "https://www.sciencedirect.com/journal/results-in-engineering",
+        "cas_2025": "2区",
+        "if": 9.4,
+        "if_year": 2025
+      }
+    ]
+  },
+  "removed": [
+    {
+      "name": "Advances in Engineering Software",
+      "cas_2025": "3区",
+      "url": "https://www.sciencedirect.com/journal/advances-in-engineering-software"
+    }
+  ],
+  "if_source": "JCR 2025（Clarivate，2026-06-17 发布）"
+}

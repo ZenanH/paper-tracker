@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="每日论文追踪：按北京时间查看目标期刊的新论文。" />
+    <meta name="theme-color" content="#f7f8f5" />
+    <title>论文追踪</title>
+    <script>
+      (() => {
+        try {
+          const stored = localStorage.getItem("paper-tracker-theme");
+          const preference = ["light", "dark", "system"].includes(stored) ? stored : "system";
+          const resolved = preference === "system"
+            ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+            : preference;
+          document.documentElement.dataset.theme = resolved;
+        } catch (error) {
+          document.documentElement.dataset.theme = "light";
+        }
+      })();
+    </script>
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+    <link rel="stylesheet" href="assets/styles.css" />
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
+    <script src="assets/app.js" type="module"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#paper-list">跳到论文列表</a>
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="brand" href="./" aria-label="论文追踪首页">
+          <span class="brand-mark" aria-hidden="true"><i data-lucide="library-big"></i></span>
+          <span>
+            <strong>论文追踪</strong>
+            <small>Daily Paper Tracker</small>
+          </span>
+        </a>
+        <nav class="view-tabs" aria-label="页面视图">
+          <button class="view-tab is-active" type="button" data-view="daily">每日论文</button>
+          <button class="view-tab" type="button" data-view="supplements">
+            历史补录
+            <span class="tab-count" id="supplement-count" hidden>0</span>
+          </button>
+        </nav>
+        <div class="header-actions">
+          <a class="icon-button github-link" href="https://github.com/ZenanH/paper-tracker" target="_blank" rel="noopener noreferrer" title="GitHub 仓库" aria-label="打开 GitHub 仓库">
+            <i data-lucide="github"></i>
+          </a>
+          <button class="icon-button" id="settings-button" type="button" title="设置" aria-label="打开设置">
+            <i data-lucide="settings-2"></i>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <section class="workspace" aria-live="polite">
+        <div class="toolbar" id="daily-toolbar">
+          <div class="date-controls">
+            <button class="icon-button" id="previous-day" type="button" title="前一天" aria-label="前一天">
+              <i data-lucide="chevron-left"></i>
+            </button>
+            <label class="date-field">
+              <i data-lucide="calendar-days" aria-hidden="true"></i>
+              <span class="sr-only">选择日期</span>
+              <input id="date-picker" type="date" />
+            </label>
+            <button class="icon-button" id="next-day" type="button" title="后一天" aria-label="后一天">
+              <i data-lucide="chevron-right"></i>
+            </button>
+            <button class="text-button" id="return-yesterday" type="button">返回昨日</button>
+          </div>
+          <div class="toolbar-summary" id="toolbar-summary"></div>
+        </div>
+
+        <div class="ci-status" id="ci-status" role="status" aria-live="polite">
+          <span class="ci-dot is-loading" aria-hidden="true"></span>
+          <span>正在读取 CI 状态</span>
+        </div>
+
+        <div class="supplement-toolbar" id="supplement-toolbar" hidden>
+          <div>
+            <p class="eyebrow">历史补录</p>
+            <h1>归档后的新增与待核实记录</h1>
+          </div>
+          <div class="segmented-control" role="tablist" aria-label="补录分类">
+            <button class="is-active" type="button" role="tab" data-supplement="late_additions">迟到补录</button>
+            <button type="button" role="tab" data-supplement="date_pending">日期待核实</button>
+          </div>
+        </div>
+
+        <div class="status-strip" id="status-strip" hidden></div>
+        <div class="content-heading" id="content-heading"></div>
+        <div id="paper-list" class="paper-list" tabindex="-1"></div>
+      </section>
+    </main>
+
+    <dialog class="settings-dialog" id="settings-dialog" aria-labelledby="settings-title">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">设置</p>
+          <strong id="settings-title">页面偏好</strong>
+        </div>
+        <button class="icon-button" id="close-settings" type="button" title="关闭" aria-label="关闭设置">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="settings-body">
+        <section class="settings-section">
+          <div class="settings-section-heading">
+            <div>
+              <strong>期刊显示</strong>
+              <span id="settings-journal-summary">全部期刊</span>
+            </div>
+            <button class="text-button compact-button" id="restore-journals" type="button">恢复全部</button>
+          </div>
+          <p class="settings-note">仅影响当前浏览器的显示范围，不改变 GitHub CI 的采集范围。</p>
+          <div id="settings-journal-list" class="settings-journal-list"></div>
+        </section>
+
+        <section class="settings-section">
+          <div class="settings-section-heading">
+            <div>
+              <strong>主题</strong>
+              <span>保存到当前浏览器</span>
+            </div>
+          </div>
+          <div class="segmented-control theme-control" role="group" aria-label="选择主题">
+            <button type="button" data-theme-option="system">跟随系统</button>
+            <button type="button" data-theme-option="light">浅色</button>
+            <button type="button" data-theme-option="dark">深色</button>
+          </div>
+        </section>
+      </div>
+    </dialog>
+
+    <footer class="site-footer">
+      <p>论文日期按来源的首次在线发表日期归档，时区为 Asia/Shanghai。</p>
+      <p id="source-note"></p>
+    </footer>
+
+    <template id="loading-template">
+      <div class="loading-state" aria-label="正在加载">
+        <span></span><span></span><span></span>
+      </div>
+    </template>
+  </body>
+</html>
