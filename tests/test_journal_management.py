@@ -42,6 +42,7 @@ class JournalManagementTests(unittest.TestCase):
                 [],
             )
             self.assertTrue((data_dir / "title-classifications.json").exists())
+            self.assertTrue((data_dir / "excluded-papers.json").exists())
 
     def test_filter_config_validates_ids_and_survives_restart(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -54,6 +55,16 @@ class JournalManagementTests(unittest.TestCase):
                 self.assertEqual(journal_config.filter_journal_ids(), ["one", "two"])
                 with self.assertRaises(ValueError):
                     journal_config.update_filter_config(["missing"], {"one", "two"})
+
+    def test_new_journal_filter_flag_is_persisted_before_backfill(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory)
+            with patch.object(journal_config, "DATA_DIR", data_dir):
+                journal_config.update_filter_config(["existing"], {"existing"})
+                journal_config.set_filter_journal("new-journal", True)
+                self.assertEqual(
+                    journal_config.filter_journal_ids(), ["existing", "new-journal"]
+                )
 
     def test_add_and_remove_user_journal_in_persistent_config(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -127,6 +138,23 @@ class JournalManagementTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            (data_dir / "excluded-papers.json").write_text(
+                json.dumps(
+                    {
+                        "entries": {
+                            "remove-filtered": {
+                                "id": "remove-filtered",
+                                "journal_id": "remove-me",
+                            },
+                            "keep-filtered": {
+                                "id": "keep-filtered",
+                                "journal_id": "keep-me",
+                            },
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
             with patch.object(journal_config, "DATA_DIR", data_dir):
                 removed_ids = journal_config.remove_journal_data("remove-me")
 
@@ -146,6 +174,10 @@ class JournalManagementTests(unittest.TestCase):
             )
             self.assertEqual(set(classifications["entries"]), {"shared"})
             self.assertEqual(classifications["entries"]["shared"]["journal_ids"], ["keep-me"])
+            excluded = json.loads(
+                (data_dir / "excluded-papers.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(set(excluded["entries"]), {"keep-filtered"})
 
     def test_next_run_is_one_am_beijing(self):
         timezone = ZoneInfo("Asia/Shanghai")
@@ -161,7 +193,9 @@ class JournalManagementTests(unittest.TestCase):
         )
 
     def test_add_pipeline_runs_complete_targeted_workflow(self):
-        with patch.object(journal_manager, "run_command") as run_command:
+        with patch.object(journal_manager, "run_command") as run_command, patch.object(
+            journal_manager, "llm_is_configured", return_value=True
+        ):
             journal_manager.add_pipeline("nature")
 
         self.assertEqual(
@@ -190,6 +224,18 @@ class JournalManagementTests(unittest.TestCase):
                 ["python3", "scripts/validate_data.py"],
             ],
         )
+
+    def test_add_pipeline_skips_translation_without_model(self):
+        with patch.object(journal_manager, "run_command") as run_command, patch.object(
+            journal_manager, "append_log"
+        ) as append_log, patch.object(
+            journal_manager, "llm_is_configured", return_value=False
+        ):
+            journal_manager.add_pipeline("nature")
+
+        commands = [call.args[0] for call in run_command.call_args_list]
+        self.assertFalse(any("scripts/translate.py" in command for command in commands))
+        append_log.assert_called_once()
 
     def test_restore_job_preserves_result_and_marks_running_as_interrupted(self):
         with tempfile.TemporaryDirectory() as directory:

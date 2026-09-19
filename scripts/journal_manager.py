@@ -17,6 +17,11 @@ from zoneinfo import ZoneInfo
 
 from collect import prune_translation_cache
 from common import DATA_DIR, ROOT, iso_now, read_json, subtract_months, write_json
+from excluded_papers import (
+    load_excluded,
+    public_excluded_records,
+    restore_excluded_records,
+)
 from journal_config import (
     CONFIG_PATH,
     add_journal,
@@ -26,7 +31,14 @@ from journal_config import (
     refresh_manifest,
     remove_journal,
     remove_journal_data,
+    set_filter_journal,
     update_filter_config,
+)
+from llm_settings import (
+    disable_llm_settings,
+    llm_is_configured,
+    public_llm_settings,
+    save_llm_settings,
 )
 
 PORT = int(os.environ.get("MANAGER_PORT", "8090"))
@@ -168,21 +180,11 @@ def mark_reconciled(reference: date | None = None) -> None:
 
 def daily_pipeline() -> None:
     run_command(["python3", "scripts/collect.py", "--mode", "daily"])
-    run_command(
-        [
-            "python3", "scripts/translate.py", "--limit", "1000",
-            "--batch-size", "8", "--workers", "2",
-        ]
-    )
+    run_translation(1000)
     reconciled = reconciliation_due()
     if reconciled:
         run_command(["python3", "scripts/collect.py", "--mode", "backfill"])
-        run_command(
-            [
-                "python3", "scripts/translate.py", "--limit", "2000",
-                "--batch-size", "8", "--workers", "2",
-            ]
-        )
+        run_translation(2000)
     if metrics_due():
         run_command(["python3", "scripts/update_metrics.py"])
     run_command(["python3", "scripts/validate_data.py"])
@@ -196,12 +198,32 @@ def add_pipeline(journal_id: str) -> None:
     run_command(
         ["python3", "scripts/collect.py", "--mode", "backfill", "--journal-id", journal_id]
     )
+    run_translation(2000)
+    run_command(["python3", "scripts/validate_data.py"])
+
+
+def run_translation(limit: int) -> bool:
+    if not llm_is_configured():
+        append_log("未配置模型，跳过翻译；标题过滤也不会执行")
+        return False
     run_command(
         [
-            "python3", "scripts/translate.py", "--limit", "2000",
+            "python3", "scripts/translate.py", "--limit", str(limit),
             "--batch-size", "8", "--workers", "2",
         ]
     )
+    return True
+
+
+def restore_filtered_pipeline(filter_ids: list[str]) -> None:
+    result = restore_excluded_records(DATA_DIR, filter_ids)
+    restored_count = len(result["restored"])
+    append_log(
+        f"已恢复 {restored_count} 篇过滤论文，跳过 {len(result['skipped'])} 篇"
+    )
+    refresh_manifest()
+    if restored_count:
+        run_translation(2000)
     run_command(["python3", "scripts/validate_data.py"])
 
 
@@ -292,6 +314,7 @@ def scheduler_loop() -> None:
 
 def journal_payload() -> dict[str, Any]:
     journals = read_json(DATA_DIR / "journals.json", {}).get("journals", [])
+    excluded = load_excluded(DATA_DIR).get("entries", {})
     with JOB_LOCK:
         job = dict(JOB)
     return {
@@ -301,6 +324,8 @@ def journal_payload() -> dict[str, Any]:
             for journal_id in filter_journal_ids()
             if journal_id in {journal["id"] for journal in journals}
         ],
+        "excluded_count": len(excluded),
+        "llm": public_llm_settings(),
         "job": {**job, "next_run": next_run().isoformat()},
         "timezone": "Asia/Shanghai",
         "schedule": "01:00",
@@ -341,6 +366,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {"status": "ok"})
         elif self.request_path() in {"/api/admin/journals", "/api/admin/status"}:
             self.send_json(200, journal_payload())
+        elif self.request_path() == "/api/admin/filter/excluded":
+            self.send_json(200, {"records": public_excluded_records(DATA_DIR)})
         else:
             self.send_json(404, {"error": "not found"})
 
@@ -351,11 +378,15 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if self.request_path() == "/api/admin/journals":
                 payload = self.read_payload()
+                filter_enabled = payload.get("filter_enabled", False)
+                if not isinstance(filter_enabled, bool):
+                    raise ValueError("filter_enabled 必须是布尔值")
                 with OPERATION_LOCK:
                     with JOB_LOCK:
                         if JOB["status"] == "running":
                             raise ValueError("已有任务正在运行，请等待完成")
                     journal = add_journal(payload.get("name", ""))
+                    set_filter_journal(journal["id"], filter_enabled)
                     start_job("add", lambda: add_pipeline(journal["id"]))
                 self.send_json(202, {"journal": journal, **journal_payload()})
                 return
@@ -373,6 +404,43 @@ class Handler(BaseHTTPRequestHandler):
                     journals = read_json(DATA_DIR / "journals.json", {}).get("journals", [])
                     valid_ids = {journal["id"] for journal in journals}
                     update_filter_config(payload.get("journal_ids"), valid_ids)
+                self.send_json(200, journal_payload())
+                return
+            if self.request_path() == "/api/admin/filter/restore":
+                payload = self.read_payload()
+                filter_ids = payload.get("ids")
+                if not isinstance(filter_ids, list) or any(
+                    not isinstance(item, str) for item in filter_ids
+                ):
+                    raise ValueError("恢复记录必须是字符串数组")
+                if not filter_ids:
+                    raise ValueError("请至少选择一篇论文")
+                with OPERATION_LOCK:
+                    start_job(
+                        "restore-filtered",
+                        lambda: restore_filtered_pipeline(filter_ids),
+                    )
+                self.send_json(202, journal_payload())
+                return
+            if self.request_path() == "/api/admin/llm":
+                payload = self.read_payload()
+                with OPERATION_LOCK:
+                    with JOB_LOCK:
+                        if JOB["status"] == "running":
+                            raise ValueError("任务运行期间不能修改模型配置")
+                    save_llm_settings(
+                        payload.get("base_url"),
+                        payload.get("api_key"),
+                        payload.get("model"),
+                    )
+                self.send_json(200, journal_payload())
+                return
+            if self.request_path() == "/api/admin/llm/disable":
+                with OPERATION_LOCK:
+                    with JOB_LOCK:
+                        if JOB["status"] == "running":
+                            raise ValueError("任务运行期间不能修改模型配置")
+                    disable_llm_settings()
                 self.send_json(200, journal_payload())
                 return
             self.send_json(404, {"error": "not found"})

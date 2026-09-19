@@ -23,6 +23,7 @@ from translate import (
     load_llm_config,
     request_json,
 )
+from llm_settings import configured_llm_model, llm_is_configured
 
 RULE_VERSION = TITLE_FILTER_RULE_VERSION
 EXCLUDED_CATEGORIES = {"medicine", "biology", "chemistry", "humanities"}
@@ -185,7 +186,8 @@ class TitleFilter:
         self.cache = cached if isinstance(cached, dict) else {}
         if not isinstance(self.cache.get("entries"), dict):
             self.cache["entries"] = {}
-        self.engine = translation_engine()
+        self.engine = translation_engine(configured_llm_model())
+        self.configured = llm_is_configured()
         self.changed = False
 
     def enabled_for(self, journal_id: str) -> bool:
@@ -203,16 +205,17 @@ class TitleFilter:
 
     def classify_articles(
         self, articles: list[dict[str, Any]], journal_id: str
-    ) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, int]]:
         stats = {
             "classified": 0,
             "cached": 0,
             "excluded": 0,
             "biomechanics_kept": 0,
             "failed_open": 0,
+            "skipped_unconfigured": 0,
         }
         if not articles:
-            return [], stats
+            return [], [], stats
 
         entries = self.cache["entries"]
         decisions: dict[str, dict[str, Any]] = {}
@@ -249,49 +252,55 @@ class TitleFilter:
 
         if unresolved:
             keys = list(unresolved)
-            try:
-                llm_config = self._load_llm_config()
-            except RuntimeError as exc:
-                stats["failed_open"] += len(unresolved)
-                print(f"WARN title filtering skipped; keeping {len(unresolved)} titles: {exc}")
+            if not self.configured:
+                stats["skipped_unconfigured"] += len(unresolved)
                 for key in unresolved:
-                    decisions.setdefault(key, {"category": "keep", "confidence": 0.0})
+                    decisions[key] = {"category": "keep", "confidence": 0.0}
             else:
-                for offset in range(0, len(keys), BATCH_SIZE):
-                    batch_keys = keys[offset : offset + BATCH_SIZE]
-                    try:
-                        results = classify_llm_batch(
-                            llm_config, [unresolved[key] for key in batch_keys]
-                        )
-                    except TranslationError as exc:
-                        stats["failed_open"] += len(batch_keys)
-                        print(
-                            "WARN title filtering batch skipped; "
-                            f"keeping {len(batch_keys)} titles: {exc}"
-                        )
-                        for key in batch_keys:
-                            decisions[key] = {"category": "keep", "confidence": 0.0}
-                        continue
-                    for key, result in zip(batch_keys, results):
-                        decisions[key] = result
-                        entries[key] = {
-                            "source": unresolved[key],
-                            "category": result["category"],
-                            "confidence": result["confidence"],
-                            "excluded": result["category"] in EXCLUDED_CATEGORIES
-                            and result["confidence"] >= EXCLUDE_CONFIDENCE,
-                            "provider": "openai-compatible",
-                            "engine": self.engine,
-                            "model": llm_config.model,
-                            "rule_version": RULE_VERSION,
-                            "classified_at": observed_at,
-                            "last_seen_at": observed_at,
-                            "journal_ids": [journal_id],
-                        }
-                        stats["classified"] += 1
-                        self.changed = True
+                try:
+                    llm_config = self._load_llm_config()
+                except RuntimeError as exc:
+                    stats["failed_open"] += len(unresolved)
+                    print(f"WARN title filtering skipped; keeping {len(unresolved)} titles: {exc}")
+                    for key in unresolved:
+                        decisions.setdefault(key, {"category": "keep", "confidence": 0.0})
+                else:
+                    for offset in range(0, len(keys), BATCH_SIZE):
+                        batch_keys = keys[offset : offset + BATCH_SIZE]
+                        try:
+                            results = classify_llm_batch(
+                                llm_config, [unresolved[key] for key in batch_keys]
+                            )
+                        except TranslationError as exc:
+                            stats["failed_open"] += len(batch_keys)
+                            print(
+                                "WARN title filtering batch skipped; "
+                                f"keeping {len(batch_keys)} titles: {exc}"
+                            )
+                            for key in batch_keys:
+                                decisions[key] = {"category": "keep", "confidence": 0.0}
+                            continue
+                        for key, result in zip(batch_keys, results):
+                            decisions[key] = result
+                            entries[key] = {
+                                "source": unresolved[key],
+                                "category": result["category"],
+                                "confidence": result["confidence"],
+                                "excluded": result["category"] in EXCLUDED_CATEGORIES
+                                and result["confidence"] >= EXCLUDE_CONFIDENCE,
+                                "provider": "openai-compatible",
+                                "engine": self.engine,
+                                "model": llm_config.model,
+                                "rule_version": RULE_VERSION,
+                                "classified_at": observed_at,
+                                "last_seen_at": observed_at,
+                                "journal_ids": [journal_id],
+                            }
+                            stats["classified"] += 1
+                            self.changed = True
 
         retained = []
+        excluded_articles = []
         for article in articles:
             decision = decisions[self.cache_key(article["title_en"])]
             excluded = (
@@ -300,10 +309,20 @@ class TitleFilter:
             )
             if excluded:
                 stats["excluded"] += 1
+                excluded_articles.append(
+                    {
+                        **article,
+                        "filter_category": decision["category"],
+                        "filter_confidence": decision["confidence"],
+                        "filter_engine": self.engine,
+                        "filter_rule_version": RULE_VERSION,
+                        "excluded_at": observed_at,
+                    }
+                )
             else:
                 retained.append(article)
         self.prune_and_save()
-        return retained, stats
+        return retained, excluded_articles, stats
 
     def prune_and_save(self) -> None:
         cutoff = retention_start(self.reference)

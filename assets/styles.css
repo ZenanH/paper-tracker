@@ -393,6 +393,7 @@ svg { width: 1.1rem; height: 1.1rem; stroke-width: 1.8; }
 .settings-section-heading span { margin-top: 0.2rem; color: var(--muted); font-size: 0.72rem; }
 .settings-note { margin: 0.65rem 0 0.8rem; color: var(--muted); font-size: 0.72rem; line-height: 1.5; }
 .compact-button { min-height: 34px; padding: 0 0.7rem; font-size: 0.74rem; white-space: nowrap; }
+.settings-heading-actions { display: flex; align-items: center; gap: 0.4rem; }
 .settings-journal-list { display: grid; gap: 0.2rem; }
 .settings-journal-group { min-width: 0; border-top: 1px solid var(--line); }
 .settings-journal-group:first-child { border-top: 0; }
@@ -430,6 +431,16 @@ svg { width: 1.1rem; height: 1.1rem; stroke-width: 1.8; }
 .settings-journal-option small { margin-top: 0.12rem; color: var(--muted); font-size: 0.66rem; line-height: 1.35; }
 .filter-settings-status { min-height: 1.1rem; margin: -0.25rem 0 0.45rem; color: var(--muted); font-size: 0.68rem; }
 .filter-settings-status.is-error { color: var(--danger); }
+.llm-settings-fields { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(110px, 0.6fr); gap: 0.65rem; }
+.llm-settings-fields label { min-width: 0; display: grid; gap: 0.3rem; color: var(--muted); font-size: 0.68rem; }
+.llm-settings-fields input { width: 100%; min-height: 38px; padding: 0 0.65rem; border: 1px solid var(--line); border-radius: var(--radius); color: var(--ink); background: var(--surface); }
+.llm-key-field { grid-column: 1 / -1; }
+.excluded-paper-list { max-height: 300px; overflow-y: auto; border-top: 1px solid var(--line); }
+.excluded-paper-item { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 0.55rem; padding: 0.65rem 0.15rem; border-bottom: 1px solid var(--line-subtle); cursor: pointer; }
+.excluded-paper-item input { width: 15px; height: 15px; margin-top: 0.15rem; accent-color: var(--accent); }
+.excluded-paper-item strong, .excluded-paper-item small { display: block; overflow-wrap: anywhere; }
+.excluded-paper-item strong { font-size: 0.74rem; line-height: 1.4; }
+.excluded-paper-item small { margin-top: 0.18rem; color: var(--muted); font-size: 0.65rem; line-height: 1.4; }
 .theme-control { width: fit-content; max-width: 100%; }
 .settings-run-button { width: 34px; height: 34px; flex: 0 0 auto; }
 .journal-add-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.55rem; }
@@ -444,6 +455,8 @@ svg { width: 1.1rem; height: 1.1rem; stroke-width: 1.8; }
   background: var(--surface);
 }
 .journal-name-field input::placeholder { color: var(--muted); }
+.journal-add-filter-option { display: flex; align-items: center; gap: 0.45rem; width: fit-content; margin-top: 0.55rem; color: var(--muted); font-size: 0.7rem; cursor: pointer; }
+.journal-add-filter-option input { width: 15px; height: 15px; accent-color: var(--accent); }
 .journal-admin-status { min-height: 24px; margin-top: 0.6rem; color: var(--muted); font-size: 0.7rem; line-height: 1.45; }
 .journal-admin-status strong, .journal-admin-status span { display: inline; }
 .journal-admin-status strong { margin-right: 0.35rem; color: var(--ink); }
@@ -470,6 +483,8 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
   .toolbar { align-items: flex-start; }
   .toolbar-summary { display: none; }
   .update-status { padding-top: 0.45rem; }
+  .llm-settings-fields { grid-template-columns: 1fr; }
+  .llm-key-field { grid-column: auto; }
   .site-footer { padding-left: 1rem; }
 }
 

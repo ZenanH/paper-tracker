@@ -21,6 +21,7 @@ from common import (
     slugify,
     write_json,
 )
+from excluded_papers import remove_excluded_journal
 
 LOCAL_SNAPSHOT = ROOT / "scripts" / "snapshot" / "FQBJCR2025-UTF8.csv"
 DEFAULT_CONFIG = ROOT / "journal.json"
@@ -82,6 +83,7 @@ def ensure_runtime_data() -> None:
             "rule_version": FILTER_RULE_VERSION,
             "entries": {},
         },
+        "excluded-papers.json": {"updated_at": iso_now(), "entries": {}},
     }
     for filename, payload in defaults.items():
         path = DATA_DIR / filename
@@ -253,6 +255,21 @@ def update_filter_config(journal_ids: Any, valid_ids: set[str]) -> dict[str, Any
     return payload
 
 
+def set_filter_journal(journal_id: str, enabled: bool) -> dict[str, Any]:
+    selected = filter_journal_ids()
+    if enabled and journal_id not in selected:
+        selected.append(journal_id)
+    if not enabled:
+        selected = [value for value in selected if value != journal_id]
+    payload = {
+        "updated_at": iso_now(),
+        "journal_ids": selected,
+        "rule_version": FILTER_RULE_VERSION,
+    }
+    write_json(DATA_DIR / "filter-config.json", payload)
+    return payload
+
+
 def remove_journal_from_filter(journal_id: str) -> None:
     path = DATA_DIR / "filter-config.json"
     payload = read_json(path, {})
@@ -321,6 +338,7 @@ def remove_journal_data(journal_id: str) -> list[str]:
         classifications["entries"] = retained_entries
         classifications["updated_at"] = iso_now()
         write_json(classifications_path, classifications)
+    remove_excluded_journal(DATA_DIR, journal_id)
     return list(dict.fromkeys(removed_article_ids))
 
 
@@ -333,6 +351,9 @@ def refresh_manifest() -> None:
     manifest["journal_count"] = len(journals)
     manifest["late_addition_count"] = len(supplements.get("late_additions", []))
     manifest["date_pending_count"] = len(supplements.get("date_pending", []))
+    manifest["available_dates"] = sorted(
+        path.stem for path in (DATA_DIR / "days").glob("????-??-??.json")
+    )
     manifest["collection_summary"] = {
         "ok": sum(1 for value in statuses.values() if value.get("status") == "ok"),
         "failed": sum(1 for value in statuses.values() if value.get("status") == "failed"),

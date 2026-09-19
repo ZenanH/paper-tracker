@@ -28,6 +28,9 @@ const state = {
   adminWasRunning: false,
   filterJournalIds: new Set(),
   filterDirty: false,
+  llmDirty: false,
+  excludedRecords: [],
+  excludedSelection: new Set(),
 };
 
 const elements = {
@@ -73,6 +76,18 @@ const elements = {
   titleFilterList: document.querySelector("#title-filter-list"),
   titleFilterSave: document.querySelector("#title-filter-save"),
   titleFilterStatus: document.querySelector("#title-filter-status"),
+  llmSettingsSummary: document.querySelector("#llm-settings-summary"),
+  llmBaseUrl: document.querySelector("#llm-base-url"),
+  llmModel: document.querySelector("#llm-model"),
+  llmApiKey: document.querySelector("#llm-api-key"),
+  llmSave: document.querySelector("#llm-save"),
+  llmDisable: document.querySelector("#llm-disable"),
+  llmSettingsStatus: document.querySelector("#llm-settings-status"),
+  excludedPaperSummary: document.querySelector("#excluded-paper-summary"),
+  excludedPaperList: document.querySelector("#excluded-paper-list"),
+  excludedPaperRestore: document.querySelector("#excluded-paper-restore"),
+  excludedPaperStatus: document.querySelector("#excluded-paper-status"),
+  journalAddFilter: document.querySelector("#journal-add-filter"),
 };
 
 let adminPollTimer = null;
@@ -226,7 +241,10 @@ function renderJournalAdmin() {
     elements.journalAdminList.replaceChildren();
     elements.journalAddRun.disabled = true;
     elements.journalRunNow.disabled = true;
+    elements.journalAddFilter.disabled = true;
+    renderLlmSettings();
     renderTitleFilter();
+    renderExcludedPapers();
     return;
   }
   const journals = payload.journals || [];
@@ -243,6 +261,7 @@ function renderJournalAdmin() {
   elements.journalAddRun.disabled = running;
   elements.journalRunNow.disabled = running;
   elements.journalNameInput.disabled = running;
+  elements.journalAddFilter.disabled = running;
   elements.journalAdminList.innerHTML = journals.map((journal) => `
     <div class="journal-admin-item">
       <div>
@@ -253,8 +272,72 @@ function renderJournalAdmin() {
         <i data-lucide="trash-2"></i>
       </button>
     </div>`).join("");
+  renderLlmSettings();
   renderTitleFilter();
+  renderExcludedPapers();
   renderIcons();
+}
+
+function renderLlmSettings() {
+  const payload = state.admin;
+  const llm = payload?.llm || {};
+  const running = payload?.job?.status === "running";
+  const available = Boolean(payload);
+  elements.llmSettingsSummary.textContent = !available
+    ? "管理服务暂不可用"
+    : llm.configured
+      ? `已启用 · ${llm.model || "模型待确认"}`
+      : "未配置 · 翻译和过滤已停用";
+  if (!state.llmDirty) {
+    elements.llmBaseUrl.value = llm.base_url || "";
+    elements.llmModel.value = llm.model || "";
+    elements.llmApiKey.value = "";
+  }
+  elements.llmApiKey.placeholder = llm.api_key_set ? "已保存；留空保持不变" : "输入 API Key";
+  for (const input of [elements.llmBaseUrl, elements.llmModel, elements.llmApiKey]) {
+    input.disabled = !available || running;
+  }
+  elements.llmSave.disabled = !available || running || !state.llmDirty;
+  elements.llmDisable.disabled = !available || running || !llm.configured;
+  elements.llmSettingsStatus.classList.toggle("is-error", Boolean(llm.error));
+  if (llm.error) elements.llmSettingsStatus.textContent = llm.error;
+}
+
+async function saveLlmSettings() {
+  elements.llmSave.disabled = true;
+  elements.llmSettingsStatus.classList.remove("is-error");
+  elements.llmSettingsStatus.textContent = "正在保存…";
+  try {
+    state.admin = await adminRequest("/llm", {
+      method: "POST",
+      body: JSON.stringify({
+        base_url: elements.llmBaseUrl.value.trim(),
+        model: elements.llmModel.value.trim(),
+        api_key: elements.llmApiKey.value,
+      }),
+    });
+    state.llmDirty = false;
+    elements.llmApiKey.value = "";
+    elements.llmSettingsStatus.textContent = "已保存，下一次任务开始使用。";
+    renderJournalAdmin();
+  } catch (error) {
+    elements.llmSettingsStatus.classList.add("is-error");
+    elements.llmSettingsStatus.textContent = `保存失败：${error.message}`;
+    elements.llmSave.disabled = false;
+  }
+}
+
+async function disableLlmSettings() {
+  if (!window.confirm("确定停用翻译与标题过滤？论文采集仍会继续。")) return;
+  try {
+    state.admin = await adminRequest("/llm/disable", { method: "POST", body: "{}" });
+    state.llmDirty = false;
+    elements.llmSettingsStatus.textContent = "已停用。";
+    renderJournalAdmin();
+  } catch (error) {
+    elements.llmSettingsStatus.classList.add("is-error");
+    elements.llmSettingsStatus.textContent = `停用失败：${error.message}`;
+  }
 }
 
 function renderTitleFilter() {
@@ -286,6 +369,72 @@ function renderTitleFilter() {
       elements.titleFilterSave.disabled = false;
     });
   });
+}
+
+function renderExcludedPapers() {
+  const running = state.admin?.job?.status === "running";
+  const records = state.excludedRecords;
+  const categoryLabels = {
+    medicine: "医学", biology: "生物", chemistry: "化学", humanities: "文学/人文",
+  };
+  elements.excludedPaperSummary.textContent = records.length
+    ? `${records.length} 篇可恢复`
+    : "没有被过滤的论文";
+  elements.excludedPaperRestore.disabled = running || state.excludedSelection.size === 0;
+  elements.excludedPaperList.innerHTML = records.map((record) => {
+    const journal = state.journalMap.get(record.journal_id);
+    const confidence = Number.isFinite(Number(record.filter_confidence))
+      ? `${Math.round(Number(record.filter_confidence) * 100)}%`
+      : "置信度未知";
+    return `<label class="excluded-paper-item">
+      <input type="checkbox" data-excluded-paper="${escapeHTML(record.filter_id)}" ${state.excludedSelection.has(record.filter_id) ? "checked" : ""} ${running ? "disabled" : ""} />
+      <span><strong>${escapeHTML(record.title_en)}</strong><small>${escapeHTML(journal?.name || record.journal_id)} · ${escapeHTML(record.published_date || "日期待核实")} · ${escapeHTML(categoryLabels[record.filter_category] || record.filter_category)} ${confidence}</small></span>
+    </label>`;
+  }).join("");
+  elements.excludedPaperList.querySelectorAll("[data-excluded-paper]").forEach((input) => {
+    input.addEventListener("change", () => {
+      if (input.checked) state.excludedSelection.add(input.dataset.excludedPaper);
+      else state.excludedSelection.delete(input.dataset.excludedPaper);
+      elements.excludedPaperRestore.disabled = state.excludedSelection.size === 0;
+    });
+  });
+}
+
+async function loadExcludedPapers() {
+  try {
+    const payload = await adminRequest("/filter/excluded");
+    state.excludedRecords = payload.records || [];
+    const validIds = new Set(state.excludedRecords.map((record) => record.filter_id));
+    state.excludedSelection = new Set(
+      [...state.excludedSelection].filter((id) => validIds.has(id))
+    );
+    elements.excludedPaperStatus.classList.remove("is-error");
+    elements.excludedPaperStatus.textContent = "";
+  } catch (error) {
+    state.excludedRecords = [];
+    elements.excludedPaperStatus.classList.add("is-error");
+    elements.excludedPaperStatus.textContent = `读取失败：${error.message}`;
+  }
+  renderExcludedPapers();
+}
+
+async function restoreExcludedPapers() {
+  const ids = [...state.excludedSelection];
+  if (!ids.length) return;
+  elements.excludedPaperStatus.classList.remove("is-error");
+  try {
+    state.admin = await adminRequest("/filter/restore", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    });
+    state.adminWasRunning = true;
+    elements.excludedPaperStatus.textContent = "正在恢复并处理翻译…";
+    renderJournalAdmin();
+    scheduleAdminPoll();
+  } catch (error) {
+    elements.excludedPaperStatus.classList.add("is-error");
+    elements.excludedPaperStatus.textContent = `恢复失败：${error.message}`;
+  }
 }
 
 async function adminRequest(path, options = {}) {
@@ -358,9 +507,10 @@ async function addJournalAndRun() {
   try {
     state.admin = await adminRequest("/journals", {
       method: "POST",
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, filter_enabled: elements.journalAddFilter.checked }),
     });
     elements.journalNameInput.value = "";
+    elements.journalAddFilter.checked = false;
     state.adminWasRunning = true;
     renderJournalAdmin();
     scheduleAdminPoll();
@@ -1065,6 +1215,7 @@ function bindEvents() {
     renderSettings();
     elements.settingsDialog.showModal();
     loadJournalAdmin();
+    loadExcludedPapers();
   });
   document.querySelector("#close-settings").addEventListener("click", () => elements.settingsDialog.close());
   elements.settingsDialog.addEventListener("click", (event) => {
@@ -1168,6 +1319,16 @@ function bindEvents() {
   });
   elements.journalRunNow.addEventListener("click", runDailyNow);
   elements.titleFilterSave.addEventListener("click", saveTitleFilter);
+  elements.llmSave.addEventListener("click", saveLlmSettings);
+  elements.llmDisable.addEventListener("click", disableLlmSettings);
+  for (const input of [elements.llmBaseUrl, elements.llmModel, elements.llmApiKey]) {
+    input.addEventListener("input", () => {
+      state.llmDirty = true;
+      elements.llmSave.disabled = false;
+      elements.llmSettingsStatus.textContent = "设置尚未保存";
+    });
+  }
+  elements.excludedPaperRestore.addEventListener("click", restoreExcludedPapers);
   elements.journalAdminList.addEventListener("click", (event) => {
     const button = event.target.closest("[data-delete-journal]");
     if (button) deleteJournal(button.dataset.deleteJournal, button.dataset.journalName);

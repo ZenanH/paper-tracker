@@ -31,6 +31,8 @@ from common import (
     translation_engine,
     write_json,
 )
+from excluded_papers import save_excluded_records
+from llm_settings import configured_llm_model
 from title_filter import TitleFilter
 
 API = "https://api.crossref.org"
@@ -309,10 +311,12 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
     }
     translations = read_json(DATA_DIR / "translations.json", {"model": None, "entries": {}})
     translation_entries = translations.get("entries", {})
+    active_translation_engine = translation_engine(configured_llm_model())
     discovered_at = iso_now()
     client = CrossrefClient()
     changed_days: dict[str, dict[str, dict[str, Any]]] = {}
     removed_from_days: dict[str, set[str]] = {}
+    excluded_records: list[dict[str, Any]] = []
     title_filter = TitleFilter(DATA_DIR, target)
 
     for journal in journals:
@@ -351,15 +355,17 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
             "excluded": 0,
             "biomechanics_kept": 0,
             "failed_open": 0,
+            "skipped_unconfigured": 0,
         }
         if filter_stats["enabled"]:
             new_candidates = [
                 article for article in candidates if article_key(article) not in existing
             ]
             filter_stats["new_candidates"] = len(new_candidates)
-            retained_new, classification_stats = title_filter.classify_articles(
+            retained_new, excluded_new, classification_stats = title_filter.classify_articles(
                 new_candidates, journal["id"]
             )
+            excluded_records.extend(excluded_new)
             retained_keys = {article_key(article) for article in retained_new}
             candidates = [
                 article
@@ -372,7 +378,7 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
         for article in candidates:
             key = article_key(article)
             cached = translation_entries.get(
-                title_cache_key(article["title_en"], translation_engine())
+                title_cache_key(article["title_en"], active_translation_engine)
             )
             if cached:
                 article["title_zh"] = cached["translation"]
@@ -460,6 +466,7 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
     write_json(DATA_DIR / "supplements.json", supplements)
     write_json(DATA_DIR / "collection-status.json", statuses)
     title_filter.prune_and_save()
+    save_excluded_records(DATA_DIR, excluded_records, target)
     prune(target)
     save_manifest(all_journals, target)
     print(f"Collection complete: mode={mode}, target={target.isoformat()}")

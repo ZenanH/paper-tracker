@@ -27,10 +27,11 @@ class TitleFilterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             instance = title_filter.TitleFilter(Path(directory), date(2026, 9, 18))
             with patch.object(instance, "_load_llm_config") as load_config:
-                retained, stats = instance.classify_articles(
+                retained, excluded, stats = instance.classify_articles(
                     [self.article(titles[0])], "example"
                 )
         self.assertEqual(len(retained), 1)
+        self.assertEqual(excluded, [])
         self.assertEqual(stats["biomechanics_kept"], 1)
         load_config.assert_not_called()
 
@@ -44,12 +45,16 @@ class TitleFilterTests(unittest.TestCase):
         articles = [self.article(f"Title {index}") for index in range(4)]
         config = LLMConfig("https://example.test/v1", "secret", "luna")
         with tempfile.TemporaryDirectory() as directory, patch.object(
+            title_filter, "llm_is_configured", return_value=True
+        ), patch.object(
             title_filter.TitleFilter, "_load_llm_config", return_value=config
         ), patch.object(title_filter, "classify_llm_batch", return_value=decisions):
             instance = title_filter.TitleFilter(Path(directory), date(2026, 9, 18))
-            retained, stats = instance.classify_articles(articles, "example")
+            retained, excluded, stats = instance.classify_articles(articles, "example")
 
         self.assertEqual([item["title_en"] for item in retained], ["Title 1", "Title 2", "Title 3"])
+        self.assertEqual([item["title_en"] for item in excluded], ["Title 0"])
+        self.assertEqual(excluded[0]["filter_category"], "medicine")
         self.assertEqual(stats["excluded"], 1)
 
     def test_cache_avoids_reclassifying_the_same_title(self):
@@ -57,6 +62,8 @@ class TitleFilterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             with patch.object(
+                title_filter, "llm_is_configured", return_value=True
+            ), patch.object(
                 title_filter.TitleFilter, "_load_llm_config", return_value=config
             ), patch.object(
                 title_filter,
@@ -66,11 +73,12 @@ class TitleFilterTests(unittest.TestCase):
                 first = title_filter.TitleFilter(root, date(2026, 9, 18))
                 first.classify_articles([self.article("Catalytic synthesis")], "example")
                 second = title_filter.TitleFilter(root, date(2026, 9, 18))
-                retained, stats = second.classify_articles(
+                retained, excluded, stats = second.classify_articles(
                     [self.article("Catalytic synthesis")], "example"
                 )
 
             self.assertEqual(retained, [])
+            self.assertEqual(len(excluded), 1)
             self.assertEqual(stats["cached"], 1)
             self.assertEqual(classify.call_count, 1)
             cache = json.loads((root / "title-classifications.json").read_text(encoding="utf-8"))
@@ -79,16 +87,31 @@ class TitleFilterTests(unittest.TestCase):
     def test_api_failure_keeps_titles(self):
         config = LLMConfig("https://example.test/v1", "secret", "luna")
         with tempfile.TemporaryDirectory() as directory, patch.object(
+            title_filter, "llm_is_configured", return_value=True
+        ), patch.object(
             title_filter.TitleFilter, "_load_llm_config", return_value=config
         ), patch.object(
             title_filter, "classify_llm_batch", side_effect=TranslationError("offline")
         ):
             instance = title_filter.TitleFilter(Path(directory), date(2026, 9, 18))
-            retained, stats = instance.classify_articles(
+            retained, excluded, stats = instance.classify_articles(
                 [self.article("A clinical trial")], "example"
             )
         self.assertEqual(len(retained), 1)
+        self.assertEqual(excluded, [])
         self.assertEqual(stats["failed_open"], 1)
+
+    def test_unconfigured_model_skips_filtering_without_error(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            title_filter, "llm_is_configured", return_value=False
+        ):
+            instance = title_filter.TitleFilter(Path(directory), date(2026, 9, 18))
+            retained, excluded, stats = instance.classify_articles(
+                [self.article("A clinical trial")], "example"
+            )
+        self.assertEqual(len(retained), 1)
+        self.assertEqual(excluded, [])
+        self.assertEqual(stats["skipped_unconfigured"], 1)
 
     def test_payload_validation_requires_exact_ids_and_confidence_range(self):
         items = [{"id": "p0001", "title_en": "Example"}]

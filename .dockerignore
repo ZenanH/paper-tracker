@@ -2,6 +2,7 @@
 .github
 archive
 data
+secrets
 tests
 *.md
 docker-compose.yml

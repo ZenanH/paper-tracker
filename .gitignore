@@ -9,3 +9,4 @@ __pycache__/
 # 运行数据全部保存在宿主持久目录，不进入代码仓库或 Docker 镜像。
 data/
 archive/
+secrets/

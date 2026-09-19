@@ -8,7 +8,7 @@
 - 当前已完成静态前端、期刊分区快照生成、Crossref 采集、三个月数据回填、测试及本地静态数据验证。
 - 站点、采集、翻译、指标检查和期刊管理在本机 Docker 自托管运行；日常任务不依赖 CI，程序镜像由 GitHub CI 构建发布。
 - 程序镜像由 GitHub CI 构建发布；论文、翻译、归档、收藏和运行时期刊配置保存在宿主持久目录，不进入镜像或代码仓库。
-- 中文翻译在本机执行；模型调用仅通过配置的 OpenAI 兼容接口，凭据只存本机受保护文件。
+- 中文翻译和标题过滤在本机执行；模型调用仅通过设置页配置的 OpenAI 兼容接口，凭据只存宿主机受保护文件。
 - 用户不要求独立的翻译质量测试，不安排前置的百篇翻译评测；仍须验证程序正常运行、输出完整及资源使用情况。
 - 不把设计确定或数据源存在表述为整个系统已经运行验证通过。
 
@@ -30,8 +30,9 @@
 - 实施时先检查本地目录结构与运行状态，不假设某种托管环境已经初始化。
 - 站点运行不依赖外部仓库或云端运行器；如需镜像分发等可选功能，先说明影响再决定。
 - 不覆盖无关内容，不撤销用户已有修改；路径或端口冲突时先说明。
-- 敏感凭据只放本机受保护文件（权限 0600），不进入源码、日志、前端产物或数据目录。
-- `data/` 与 `archive/` 是运行数据目录，必须独立于 Docker 镜像和 Git；容器升级不得覆盖，CI 也不得把其中内容打包进镜像。归档与收藏共同存放于 `archive/archive.json`。
+- 敏感凭据只放 `secrets/llm-config.json`（文件权限 0600，目录权限 0700），不进入源码、日志、前端产物或论文数据目录。管理 API 只返回是否已设置 Key，永不回传 Key 内容。
+- `data/`、`archive/` 与 `secrets/` 必须独立于 Docker 镜像和 Git；容器升级不得覆盖，CI 也不得把其中内容打包进镜像。归档与收藏共同存放于 `archive/archive.json`。
+- 不把运行数据或凭据直接提交到 GitHub。GitHub 仓库只保存代码、默认种子和构建配置；运行数据采用宿主机快照或加密备份，备份中若包含 `secrets/` 必须先加密。
 
 ## 时间与论文归档规则
 
@@ -109,7 +110,9 @@
 ## 翻译
 
 - 在本机调用用户配置的 OpenAI 兼容 `POST /v1/chat/completions` 接口；模型调用只在每日任务中按需进行。
-- 必填配置为环境变量 `LLM_API_KEY`、`LLM_BASE_URL` 和 `LLM_MODEL`（存放于项目根目录 `.env`，权限 0600，Git 忽略）。基础地址通常填写到 `/v1`，脚本追加 `/chat/completions`；也兼容直接填写完整 endpoint。
+- 用户在设置页填写 Base URL、API Key 和模型名称；服务端原子写入 `secrets/llm-config.json`。基础地址通常填写到 `/v1`，脚本追加 `/chat/completions`；也兼容直接填写完整 endpoint。
+- 未形成完整配置时，采集和数据维护继续运行，翻译跳过，已勾选期刊的标题过滤按失败开放原则全部保留且不调用模型。
+- 旧版 `.env` 中的 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 仅作为尚未生成持久配置文件时的兼容回退；设置页保存或停用一次后，以持久配置文件为准。
 - API 请求使用单一 `translate_titles` function tool，函数参数使用 `strict: true`、`additionalProperties: false`，要求返回 `{translations: [{id, title_zh}]}`。
 - 不能仅相信模型或 `strict`：程序必须检查 JSON 可解析、ID 集合完全一致、没有重复/多余/缺失 ID、中文标题非空，并按输入 ID 顺序重排。
 - 如果供应商不接受 `tool_choice`，首次请求失败时允许重试一次并去掉强制选择；仍须通过同样的结构和语义校验。普通自然语言或不完整结果不得写入数据。
@@ -124,13 +127,14 @@
 ## 标题学科过滤
 
 - 设置中提供独立的服务端“标题过滤”期刊选择；只有被勾选的期刊才调用分类模型，未勾选期刊完全绕过分类。默认不勾选任何期刊，升级后不得改变既有采集行为。
-- 分类复用 `LLM_BASE_URL`、`LLM_API_KEY` 和 `LLM_MODEL` 指向的 Luna/OpenAI 兼容接口，不增加新的模型账号或密钥。
+- 分类复用设置页中的 Base URL、API Key 和模型名称指向的 Luna/OpenAI 兼容接口，不增加新的模型账号或密钥。
 - 分类只针对新采集且尚未存在于日期文件或补录中的论文；启用功能或修改选择后，不自动回删三个月窗口内已有论文。需要历史重筛时必须另行设计显式操作，不能静默执行。
 - 类别固定为 `keep`、`medicine`、`biology`、`chemistry`、`humanities` 和 `uncertain`。仅当医学、生物、化学、文学/人文类别的置信度不低于 `0.90` 时排除；低置信度、`uncertain`、结构校验失败、配置缺失或 API 失败一律保留。
 - 生物力学必须保留。`biomechanics`、`biomechanical engineering`、以力学为核心的 `musculoskeletal mechanics`、`tissue/cell mechanics` 和 `mechanobiology` 同时受提示词与本地确定性规则保护，不交由模型排除。
 - 过滤发生在论文写入日期文件、补录、翻译缓存或翻译队列之前；被排除标题不得进入这些可见数据和翻译流程。
+- 被排除论文的完整记录保存在 `data/excluded-papers.json`，按三个自然月清理；设置页可选择恢复，恢复后回到原发表日或日期待核实列表，并在模型已配置时进入翻译流程。
 - API 使用严格的 `classify_titles` function tool；程序必须验证 ID 集合完全一致、类别在允许集合中、置信度为 `0..1`，并按输入顺序恢复结果，不能仅依赖供应商的 `strict` 声明。
-- 分类按最多 64 个唯一标题批处理，缓存键包含当前模型、规则版本和规范化标题。配置保存在 `data/filter-config.json`，三个月分类审计/缓存保存在 `data/title-classifications.json`，两者均属于宿主持久数据，不进入镜像。
+- 分类按最多 64 个唯一标题批处理，缓存键包含当前模型、规则版本和规范化标题。配置保存在 `data/filter-config.json`，三个月分类审计/缓存保存在 `data/title-classifications.json`，过滤记录保存在 `data/excluded-papers.json`；这些文件均属于宿主持久数据，不进入镜像。
 - 分类缓存记录关联期刊；删除期刊时移除该刊关联，仍被其他期刊引用的同标题缓存继续保留。缓存按三个自然月窗口清理。
 - 设置保存与采集任务互斥，避免运行中途改变筛选范围。采集状态记录每刊是否启用、候选数、模型分类数、缓存命中、排除数、生物力学保护数和失败保留数。
 
@@ -146,6 +150,8 @@
 - 设置按钮允许在当前浏览器隐藏或恢复已有期刊；页面不直接修改 `journal.json`，也不把本地显示偏好误当成服务端采集配置。
 - 设置中的期刊管理允许输入英文全名新增期刊、删除期刊和立即运行日更；这些操作修改数据目录内的持久配置，不修改镜像内默认种子。
 - 设置中的“期刊显示”是当前浏览器偏好；“标题过滤”是服务端采集规则。两者必须在文案和状态上明确区分，不能互相复用或暗示相同作用。
+- 设置中允许保存或停用翻译/过滤模型配置；API Key 输入框不得回填已存值，页面只显示已设置状态。
+- 设置中提供最近三个自然月的过滤记录及“恢复所选”；恢复是服务端任务，必须与采集、期刊增删和配置修改互斥。
 - 期刊筛选的“全部选择”按钮必须根据当前状态在“全部选择”和“全部取消”之间切换；空选择也要通过 URL 保持。
 - 页面顶部展示最近一次采集的期刊成功/失败统计与更新时间，数据直接读取本地 manifest，不依赖外部接口。
 - 设置中提供浅色、深色和跟随系统主题，并避免首屏主题闪烁。
@@ -192,6 +198,7 @@
 
 - 镜像内 `journal.json` 作为默认期刊种子；首次运行复制为持久化的 `data/journal-config.json`，之后用户增删不得被镜像升级覆盖。
 - 新增期刊必须先在固定 2025 分区快照匹配刊名和 ISSN，生成分区信息后回填三个月论文、尝试核验 JIF 并翻译；无法核验的指标明确标记待核实，不推测 JCR quartile 或 JIF。
+- 新增期刊时可勾选“首次回填前启用标题过滤”；服务端必须先持久化该期刊的过滤开关，再启动三个月回填，避免先写入后过滤。
 - 删除期刊时清理其日期论文、补录、采集状态、归档状态、收藏状态及无引用翻译缓存，不影响其他期刊。
 - 常驻管理容器按 `Asia/Shanghai` 每天 01:00 运行日更；UI 手动任务与定时任务互斥，避免并发写入。
 - 管理容器启动时恢复 `data/task-status.json`；上次运行中的任务标记为中断。若 manifest 落后于北京时间昨日，启动后立即补跑一次，不等待下一天 01:00。
@@ -222,9 +229,9 @@
   - `PAPER_TRACKER_UID`、`PAPER_TRACKER_GID`：写入持久目录的宿主用户身份。
   - `PAPER_TRACKER_DATA_DIR`：论文、补录、翻译缓存、指标和运行时期刊配置，默认 `./data`。
   - `PAPER_TRACKER_ARCHIVE_DIR`：归档与收藏状态，默认 `./archive`。
+  - `PAPER_TRACKER_SECRETS_DIR`：设置页保存的模型配置，默认 `./secrets`。
   - `CROSSREF_MAILTO`：Crossref 联系邮箱，可留空。
-  - `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`：OpenAI 兼容翻译接口配置。
-- 首次启动前创建 `data/days` 和 `archive`，并确保其属主与 `PAPER_TRACKER_UID:PAPER_TRACKER_GID` 一致。
+- 首次启动前创建 `data/days`、`archive` 和 `secrets`，确保其属主与 `PAPER_TRACKER_UID:PAPER_TRACKER_GID` 一致，并将 `secrets` 权限设为 0700。
 - 不使用 Docker 时，可在项目根目录运行 `python3 -m http.server 8000` 进行静态页面预览；必须通过 HTTP 访问，不能依赖直接打开 `index.html` 读取 JSON。
 - Compose 常驻三个服务：
   - `paper-tracker`：nginx 静态站点镜像 `ghcr.io/zenanh/paper-tracker:latest`。
@@ -239,7 +246,7 @@
   - `python3 scripts/update_metrics.py`：检查影响因子。
   - `python3 scripts/validate_data.py`：校验生成数据。
 - 常规部署命令为 `docker compose pull` 和 `docker compose up -d`；升级使用 `git pull --ff-only` 后执行 `docker compose pull`、`docker compose up -d --remove-orphans`。
-- 容器替换不得修改 `data/`、`archive/` 或 `.env`；迁移时须备份这三个位置。
+- 容器替换不得修改 `data/`、`archive/`、`secrets/` 或 `.env`；迁移时须备份这些位置，含凭据的备份必须加密。
 - 站点 nginx 固定使用单 worker，关闭 access log，避免低流量个人部署浪费进程并记录访问地址；保留错误日志和健康检查。
 
 ## GitHub CI 与镜像
@@ -248,3 +255,4 @@
 - 三平台测试通过后，在 Linux 构建站点、归档 API 和任务三个 `linux/amd64`、`linux/arm64` 多架构镜像。
 - 推送到 `main` 时发布 `latest` 和 `sha-*` 标签到 GHCR；Pull Request 只验证，不发布。
 - CI 使用仓库 `GITHUB_TOKEN` 发布镜像，不读取 LLM 或 Crossref 凭据；运行数据不进入 Git，也不会因日常采集触发镜像构建。
+- 不使用 GitHub 仓库保存 `data/`、`archive/`、`secrets/` 或 `.env` 的运行备份；频繁变化的生成数据会持续膨胀 Git 历史，凭据一旦提交还会进入历史记录。需要异地备份时使用加密归档或专用备份存储。

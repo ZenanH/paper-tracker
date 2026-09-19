@@ -326,6 +326,8 @@ class PipelineTests(unittest.TestCase):
                 "https://example.test/v1", "secret", "luna"
             )
             with patch.object(
+                title_filter, "llm_is_configured", return_value=True
+            ), patch.object(
                 title_filter.TitleFilter, "_load_llm_config", return_value=config
             ), patch.object(
                 title_filter,
@@ -342,6 +344,12 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(supplements["date_pending"], [])
             self.assertEqual(translations["entries"], {})
             self.assertEqual(day["journal_status"]["example"]["title_filter"]["excluded"], 1)
+            excluded = json.loads(
+                (root / "excluded-papers.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(len(excluded["entries"]), 1)
+            record = next(iter(excluded["entries"].values()))
+            self.assertEqual(record["doi"], "10.1000/medical")
 
     def test_unselected_journal_bypasses_title_classifier(self):
         with tempfile.TemporaryDirectory() as directory:

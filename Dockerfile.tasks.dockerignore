@@ -4,6 +4,7 @@
 archive
 assets
 data
+secrets
 server
 tests
 README.md

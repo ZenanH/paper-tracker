@@ -69,6 +69,46 @@ def main() -> int:
         assert isinstance(confidence, (int, float)) and not isinstance(confidence, bool), entry
         assert 0 <= confidence <= 1, entry
         assert set(entry.get("journal_ids", [])) <= journal_ids, entry
+
+    excluded = read_json(DATA_DIR / "excluded-papers.json", {"entries": {}})
+    excluded_entries = excluded.get("entries", {})
+    assert isinstance(excluded_entries, dict), "excluded-papers entries must be an object"
+    visible_keys = seen | supplement_keys["late_additions"] | supplement_keys["date_pending"]
+    required_fields = {
+        "id",
+        "journal_id",
+        "title_en",
+        "url",
+        "first_discovered_at",
+        "filter_category",
+        "filter_confidence",
+        "filter_engine",
+        "filter_rule_version",
+        "excluded_at",
+    }
+    for key, article in excluded_entries.items():
+        assert isinstance(article, dict), article
+        assert required_fields <= set(article), article
+        assert key == article_key(article), article
+        assert key not in visible_keys, f"Filtered article is still visible: {key}"
+        assert article["journal_id"] in journal_ids, article
+        assert article["title_en"].strip(), article
+        assert article["url"].startswith(("http://", "https://")), article
+        assert article["filter_category"] in {
+            "medicine",
+            "biology",
+            "chemistry",
+            "humanities",
+        }, article
+        confidence = article["filter_confidence"]
+        assert isinstance(confidence, (int, float)) and not isinstance(confidence, bool), article
+        assert 0 <= confidence <= 1, article
+        published = article.get("published_date")
+        if published:
+            record_date = date.fromisoformat(published)
+        else:
+            record_date = date.fromisoformat(article["first_discovered_at"][:10])
+        assert retention_begin <= record_date <= retention_end, article
     print(f"Validated {len(files)} day files and {len(seen)} articles")
     return 0
 

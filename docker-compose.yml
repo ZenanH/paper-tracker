@@ -54,6 +54,7 @@ services:
       - TZ=Asia/Shanghai
       - PAPER_TRACKER_DATA_DIR=/app/data
       - PAPER_TRACKER_JOURNAL_CONFIG=/app/data/journal-config.json
+      - PAPER_TRACKER_LLM_CONFIG=/app/secrets/llm-config.json
       - ARCHIVE_API_URL=http://archive-api:8080/api/archive
       - MANAGER_PORT=8090
       - CROSSREF_MAILTO=${CROSSREF_MAILTO:-}
@@ -62,6 +63,7 @@ services:
       - LLM_MODEL=${LLM_MODEL:-}
     volumes:
       - ${PAPER_TRACKER_DATA_DIR:-./data}:/app/data
+      - ${PAPER_TRACKER_SECRETS_DIR:-./secrets}:/app/secrets
     depends_on:
       archive-api:
         condition: service_healthy
@@ -80,9 +82,11 @@ services:
       - TZ=Asia/Shanghai
       - PAPER_TRACKER_DATA_DIR=/app/data
       - PAPER_TRACKER_JOURNAL_CONFIG=/app/data/journal-config.json
+      - PAPER_TRACKER_LLM_CONFIG=/app/secrets/llm-config.json
       - CROSSREF_MAILTO=${CROSSREF_MAILTO:-}
       - LLM_BASE_URL=${LLM_BASE_URL:-}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_MODEL=${LLM_MODEL:-}
     volumes:
       - ${PAPER_TRACKER_DATA_DIR:-./data}:/app/data
+      - ${PAPER_TRACKER_SECRETS_DIR:-./secrets}:/app/secrets

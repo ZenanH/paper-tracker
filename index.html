@@ -25,9 +25,9 @@
     <link rel="shortcut icon" href="assets/favicon.ico?v=c3cd5d7ef3" />
     <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=44ad171dcf" />
     <link rel="mask-icon" href="assets/favicon.svg?v=25b680167f" color="#0f766e" />
-    <link rel="stylesheet" href="assets/styles.css?v=fb7010e774" />
+    <link rel="stylesheet" href="assets/styles.css?v=bc86102276" />
     <script src="assets/vendor/lucide.min.js?v=3411692820" defer></script>
-    <script src="assets/app.js?v=74e5f37432" type="module"></script>
+    <script src="assets/app.js?v=3b2903b7a9" type="module"></script>
   </head>
   <body>
     <a class="skip-link" href="#paper-list">跳到论文列表</a>
@@ -155,6 +155,26 @@
         <section class="settings-section">
           <div class="settings-section-heading">
             <div>
+              <strong>翻译与过滤模型</strong>
+              <span id="llm-settings-summary">正在读取配置</span>
+            </div>
+            <div class="settings-heading-actions">
+              <button class="text-button compact-button" id="llm-disable" type="button" disabled>停用</button>
+              <button class="text-button compact-button is-primary" id="llm-save" type="button" disabled>保存</button>
+            </div>
+          </div>
+          <p class="settings-note">配置保存在宿主机独立的 secrets 目录，不会写入网页数据或 Git。未配置时仍正常采集论文，但不翻译，也不执行标题过滤。</p>
+          <div class="llm-settings-fields">
+            <label><span>Base URL</span><input id="llm-base-url" type="url" inputmode="url" autocomplete="off" placeholder="https://provider.example/v1" /></label>
+            <label><span>模型</span><input id="llm-model" type="text" autocomplete="off" placeholder="例如 luna" /></label>
+            <label class="llm-key-field"><span>API Key</span><input id="llm-api-key" type="password" autocomplete="new-password" placeholder="输入 API Key" /></label>
+          </div>
+          <div id="llm-settings-status" class="filter-settings-status" role="status"></div>
+        </section>
+
+        <section class="settings-section">
+          <div class="settings-section-heading">
+            <div>
               <strong>标题过滤</strong>
               <span id="title-filter-summary">正在读取服务设置</span>
             </div>
@@ -163,6 +183,19 @@
           <p class="settings-note">仅勾选的期刊会在新论文入库前调用 Luna，过滤高置信度的医学、生物、化学和文学/人文标题。生物力学始终保留；判断不确定或接口失败时也会保留。</p>
           <div id="title-filter-status" class="filter-settings-status" role="status"></div>
           <div id="title-filter-list" class="settings-journal-list"></div>
+        </section>
+
+        <section class="settings-section">
+          <div class="settings-section-heading">
+            <div>
+              <strong>过滤记录</strong>
+              <span id="excluded-paper-summary">没有被过滤的论文</span>
+            </div>
+            <button class="text-button compact-button is-primary" id="excluded-paper-restore" type="button" disabled>恢复所选</button>
+          </div>
+          <p class="settings-note">保留最近三个自然月被过滤论文的完整信息。恢复后论文会回到原发表日期或日期待核实列表，并进入翻译流程。</p>
+          <div id="excluded-paper-status" class="filter-settings-status" role="status"></div>
+          <div id="excluded-paper-list" class="excluded-paper-list"></div>
         </section>
 
         <section class="settings-section">
@@ -183,6 +216,10 @@
             </label>
             <button class="text-button is-primary" id="journal-add-run" type="button">添加并运行</button>
           </div>
+          <label class="journal-add-filter-option">
+            <input id="journal-add-filter" type="checkbox" />
+            <span>首次回填前启用标题过滤</span>
+          </label>
           <div class="journal-admin-status" id="journal-admin-status" role="status"></div>
           <div class="journal-admin-list" id="journal-admin-list"></div>
         </section>

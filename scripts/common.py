@@ -94,8 +94,9 @@ def article_key(article: dict[str, Any]) -> str:
     return "fallback:" + hashlib.sha256(seed.encode("utf-8")).hexdigest()
 
 
-def translation_engine() -> str:
-    model = os.environ.get("LLM_MODEL", "").strip() or "unconfigured"
+def translation_engine(model: str | None = None) -> str:
+    model = (model if model is not None else os.environ.get("LLM_MODEL", "")).strip()
+    model = model or "unconfigured"
     return f"openai-compatible:{model}"
 
 

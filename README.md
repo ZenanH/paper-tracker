@@ -9,6 +9,7 @@
 - 展示中科院 2025 升级版分区、Top 标记和可核验的影响因子。
 - 支持已读归档、恢复归档和跨设备收藏。
 - 可在设置中新增、删除期刊，或立即运行一次更新。
+- 可在设置中配置翻译/过滤模型，并恢复误过滤的论文。
 - 论文、翻译、归档和收藏数据保存在宿主机，升级容器不会覆盖。
 
 完整的数据规则、技术设计和维护约定见 [AGENTS.md](AGENTS.md)。
@@ -29,15 +30,17 @@ sed -i "s/^PAPER_TRACKER_TAILSCALE_IP=.*/PAPER_TRACKER_TAILSCALE_IP=$(tailscale 
 sed -i "s/^PAPER_TRACKER_UID=.*/PAPER_TRACKER_UID=$(id -u)/" .env
 sed -i "s/^PAPER_TRACKER_GID=.*/PAPER_TRACKER_GID=$(id -g)/" .env
 
-# 编辑 .env，填写 LLM_BASE_URL、LLM_API_KEY、LLM_MODEL；
 # CROSSREF_MAILTO 可按需填写。
 
-mkdir -p data/days archive
-chown -R "$(id -u):$(id -g)" data archive
+mkdir -p data/days archive secrets
+chmod 700 secrets
+chown -R "$(id -u):$(id -g)" data archive secrets
 
 docker compose pull
 docker compose up -d
 ```
+
+启动后在右上角“设置”中填写模型 Base URL、API Key 和模型名称；未配置时只采集论文，不翻译也不过滤。
 
 启动后访问：
 
@@ -59,4 +62,4 @@ docker compose pull
 docker compose up -d --remove-orphans
 ```
 
-`data/`、`archive/` 和 `.env` 独立于 Docker 镜像，更新代码和容器不会删除已有论文、翻译、归档或收藏数据。
+`data/`、`archive/`、`secrets/` 和 `.env` 独立于 Docker 镜像，更新代码和容器不会删除已有论文、翻译、归档、收藏或模型配置。

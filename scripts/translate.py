@@ -22,6 +22,7 @@ from common import (
     translation_engine,
     write_json,
 )
+from llm_settings import read_llm_settings
 
 
 class TranslationError(RuntimeError):
@@ -75,9 +76,13 @@ TRANSLATE_TOOL = {
 
 
 def load_llm_config() -> LLMConfig:
-    base_url = os.environ.get("LLM_BASE_URL", "").strip()
-    api_key = os.environ.get("LLM_API_KEY", "").strip()
-    model = os.environ.get("LLM_MODEL", "").strip()
+    try:
+        settings = read_llm_settings()
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    base_url = settings["base_url"]
+    api_key = settings["api_key"]
+    model = settings["model"]
     missing = [
         name
         for name, value in (
@@ -363,7 +368,7 @@ def main(
         raise SystemExit("--batch-size must be at least 1")
     if workers < 1:
         raise SystemExit("--workers must be at least 1")
-    engine = translation_engine()
+    engine = translation_engine(config.model)
     translations_path = DATA_DIR / "translations.json"
     cache = read_json(
         translations_path,
