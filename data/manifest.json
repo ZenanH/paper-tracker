@@ -1,7 +1,7 @@
 {
   "timezone": "Asia/Shanghai",
   "default_date": "2026-09-18",
-  "updated_at": "2026-09-19T03:29:58+08:00",
+  "updated_at": "2026-09-19T11:18:52+08:00",
   "retention": {
     "start": "2026-06-18",
     "end": "2026-09-18"
@@ -99,7 +99,7 @@
   ],
   "journal_count": 32,
   "late_addition_count": 0,
-  "date_pending_count": 297,
+  "date_pending_count": 308,
   "collection_summary": {
     "ok": 32,
     "failed": 0

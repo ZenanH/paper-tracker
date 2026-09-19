@@ -40161,7 +40161,84 @@
       "engine": "openai-compatible:gpt-5.6-luna",
       "model": "gpt-5.6-luna",
       "translated_at": "2026-09-19T03:31:02+08:00"
+    },
+    "5710ca73895e3e8eb6bec4960ebf0acab2c13df02a16410b6978e2ead630440f": {
+      "source": "Topology optimization of debonding-resistant composite structures with continuous reinforcement",
+      "translation": "连续增强抗脱粘复合结构的拓扑优化",
+      "engine": "openai-compatible:gpt-5.6-luna",
+      "model": "gpt-5.6-luna",
+      "translated_at": "2026-09-19T11:18:59+08:00"
+    },
+    "700ecb45a5bc1f9cb750c77ecd348d5dc4cd781fab77b846023f30e731b45ac8": {
+      "source": "Deformation gradient averaging regularization for third medium contact",
+      "translation": "第三介质接触的变形梯度平均正则化",
+      "engine": "openai-compatible:gpt-5.6-luna",
+      "model": "gpt-5.6-luna",
+      "translated_at": "2026-09-19T11:18:59+08:00"
+    },
+    "2a1cb026acd05f16dabbbb47b67c7c49838be360d3c042c51ff3ebb7613b9cef": {
+      "source": "Accurate fatty liver disease diagnosis with a multi-source feature fusion model on the segmented tongue image dataset",
+      "translation": "基于分割舌像数据集的多源特征融合模型实现脂肪肝疾病的精准诊断",
+      "engine": "openai-compatible:gpt-5.6-luna",
+      "model": "gpt-5.6-luna",
+      "translated_at": "2026-09-19T11:18:59+08:00"
+    },
+    "864baabdc1a0dbc4c73e8b7f7463ad3fbc1350119842cd433d6e6b969d605b34": {
+      "source": "Multi-omics integration identifies GmISO5 as a key regulator of seed isoflavone biosynthesis and implicates it in the response to soybean mosaic virus",
+      "translation": "多组学整合鉴定出 GmISO5 是种子异黄酮生物合成的关键调控因子，并暗示其参与大豆花叶病毒响应",
+      "engine": "openai-compatible:gpt-5.6-luna",
+      "model": "gpt-5.6-luna",
+      "translated_at": "2026-09-19T11:18:59+08:00"
+    },
+    "73855c3e59d9b408d0f5822eb75b5dea7e3e0ce3b3e4cabe85be85c175570843": {
+      "source": "Recursive modeling and trajectory optimization of space manipulator mounted on flexible structure",
+      "translation": "柔性结构搭载空间机械臂的递归建模与轨迹优化",
+      "engine": "openai-compatible:gpt-5.6-luna",
+      "model": "gpt-5.6-luna",
+      "translated_at": "2026-09-19T11:18:59+08:00"
+    },
+    "2b2744084aa02d5537bb86f6f2316f3ee3fe9727ca3daf8ec8552477208f3005": {
+      "source": "Quantum-resistant blockchain architecture for secure vehicular networks: A ML-KEM-enabled approach with PoA and PoP consensus",
+      "translation": "面向安全车联网的抗量子区块链架构：一种启用 ML-KEM 的 PoA 与 PoP 共识方法",
+      "engine": "openai-compatible:gpt-5.6-luna",
+      "model": "gpt-5.6-luna",
+      "translated_at": "2026-09-19T11:18:59+08:00"
+    },
+    "330e412d2fab3d990c2861b26ca67d893539f79bd290119a31956bd85d73af1e": {
+      "source": "Three-dimensional third medium contact model for hyperelastic contact and pneumatically actuated systems",
+      "translation": "用于超弹性接触与气动驱动系统的三维第三介质接触模型",
+      "engine": "openai-compatible:gpt-5.6-luna",
+      "model": "gpt-5.6-luna",
+      "translated_at": "2026-09-19T11:18:59+08:00"
+    },
+    "a3f0e3eb639cf303a656988d1e2ab6318aa4b0f47ebebf49c4e999b203cca37f": {
+      "source": "Macroscale chirality in planar elasticity: Predictions of granular micromechanics based extended micropolar model confirmed via classical micro finite element simulations",
+      "translation": "平面弹性中的宏观手性：基于颗粒微观力学扩展微极性模型的预测经经典微观有限元模拟得到验证",
+      "engine": "openai-compatible:gpt-5.6-luna",
+      "model": "gpt-5.6-luna",
+      "translated_at": "2026-09-19T11:18:59+08:00"
+    },
+    "ddcdf5faa6726ceb5a68ed5fa41efdefdbf0bfd13c652b509e8d4a83e7a43c2e": {
+      "source": "A unified anisotropic VDM–PFM theory for failure in fiber-reinforced composite materials",
+      "translation": "纤维增强复合材料失效的统一各向异性 VDM–PFM 理论",
+      "engine": "openai-compatible:gpt-5.6-luna",
+      "model": "gpt-5.6-luna",
+      "translated_at": "2026-09-19T11:18:59+08:00"
+    },
+    "98fdb5e74d9f16f31ff6174744edb75a9c1f5d9b507fcb521363572ceb8e463f": {
+      "source": "Numerical analysis of 3D space-fractional neutral-type delayed reaction–diffusion equations using a high-order difference technique",
+      "translation": "使用高阶差分技术对三维空间分数阶中立型时滞反应–扩散方程的数值分析",
+      "engine": "openai-compatible:gpt-5.6-luna",
+      "model": "gpt-5.6-luna",
+      "translated_at": "2026-09-19T11:18:59+08:00"
+    },
+    "c7abfad97af73c9acf576d48d3de6b572d16eff66688e71bbc3939e7c3284040": {
+      "source": "Modeling continuous solid structure with discrete particles",
+      "translation": "用离散粒子模拟连续固体结构",
+      "engine": "openai-compatible:gpt-5.6-luna",
+      "model": "gpt-5.6-luna",
+      "translated_at": "2026-09-19T11:18:59+08:00"
     }
   },
-  "updated_at": "2026-09-19T03:31:02+08:00"
+  "updated_at": "2026-09-19T11:18:59+08:00"
 }
