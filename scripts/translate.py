@@ -74,13 +74,6 @@ TRANSLATE_TOOL = {
 }
 
 
-def ensure_github_actions() -> None:
-    if os.environ.get("GITHUB_ACTIONS") != "true":
-        raise SystemExit(
-            "Translation is CI-only. Run the Backfill paper history or Daily paper update GitHub Actions workflow."
-        )
-
-
 def load_llm_config() -> LLMConfig:
     base_url = os.environ.get("LLM_BASE_URL", "").strip()
     api_key = os.environ.get("LLM_API_KEY", "").strip()
@@ -96,7 +89,7 @@ def load_llm_config() -> LLMConfig:
     ]
     if missing:
         raise SystemExit(
-            "Missing GitHub Actions translation configuration: " + ", ".join(missing)
+            "Missing translation configuration: " + ", ".join(missing)
         )
     parsed = urllib.parse.urlparse(base_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -346,7 +339,6 @@ def main(
     workers: int,
     retranslate_existing: bool = False,
 ) -> int:
-    ensure_github_actions()
     config = load_llm_config()
     if limit < 0:
         raise SystemExit("--limit must be zero or greater")
@@ -458,7 +450,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--retranslate-existing",
         action="store_true",
-        help="Replace translations produced by a different engine; intended for the manual backfill workflow.",
+        help="Replace translations produced by a different engine; intended for the one-off backfill.",
     )
     options = parser.parse_args()
     raise SystemExit(

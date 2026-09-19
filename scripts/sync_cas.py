@@ -5,19 +5,15 @@ import csv
 import io
 import json
 import sys
-import urllib.parse
-import urllib.request
 from pathlib import Path
 
 from common import DATA_DIR, ROOT, file_sha256, git_blob_sha, iso_now, slugify, write_json
 
-COMMIT = "2557e1856ba9f8eb945f781deeda1e5fb58ace88"
+# 本地归档的官方快照（随仓库保存，按 git blob 校验值锁定版本）
+LOCAL_SNAPSHOT = ROOT / "scripts" / "snapshot" / "FQBJCR2025-UTF8.csv"
 EXPECTED_BLOB = "5918c4ee712878e2b6bc2e5d50f7a87b3c67a719"
 SOURCE_PATH = "中科院分区表及JCR原始数据文件/FQBJCR2025-UTF8.csv"
-SOURCE_URL = (
-    "https://raw.githubusercontent.com/hitfyd/ShowJCR/"
-    f"{COMMIT}/{urllib.parse.quote(SOURCE_PATH)}"
-)
+SOURCE_LABEL = "中科院分区表升级版 2025（官方平台停服前快照，文件校验固定）"
 
 
 def normalized(value: str) -> str:
@@ -25,11 +21,10 @@ def normalized(value: str) -> str:
 
 
 def load_source(source_file: Path | None) -> bytes:
-    if source_file:
-        return source_file.read_bytes()
-    request = urllib.request.Request(SOURCE_URL, headers={"User-Agent": "paper-tracker/1.0"})
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return response.read()
+    path = source_file or LOCAL_SNAPSHOT
+    if not path.exists():
+        raise SystemExit(f"缺少本地快照文件: {path}（应随仓库保存）")
+    return path.read_bytes()
 
 
 def main() -> int:
@@ -95,9 +90,7 @@ def main() -> int:
     payload = {
         "generated_at": iso_now(),
         "source": {
-            "label": "中科院期刊分区表 2025 升级版，数据整理来源 ShowJCR",
-            "repository": "https://github.com/hitfyd/ShowJCR",
-            "commit": COMMIT,
+            "label": SOURCE_LABEL,
             "path": SOURCE_PATH,
             "git_blob_sha": EXPECTED_BLOB,
             "sha256": file_sha256(content),

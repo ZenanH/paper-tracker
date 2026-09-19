@@ -2,15 +2,7 @@ const STORAGE_KEYS = {
   hiddenJournals: "paper-tracker-hidden-journals",
   settingsGroups: "paper-tracker-settings-journal-groups",
   theme: "paper-tracker-theme",
-  ciCache: "paper-tracker-ci-cache",
 };
-const CI_REPOSITORY = "ZenanH/paper-tracker";
-const CI_CACHE_TTL = 10 * 60 * 1000;
-const CI_WORKFLOWS = new Set([
-  "Daily paper update",
-  "Backfill paper history",
-  "Quarterly impact factor check",
-]);
 
 const state = {
   view: "daily",
@@ -36,7 +28,7 @@ const elements = {
   yesterday: document.querySelector("#return-yesterday"),
   summary: document.querySelector("#toolbar-summary"),
   status: document.querySelector("#status-strip"),
-  ciStatus: document.querySelector("#ci-status"),
+  updateStatus: document.querySelector("#update-status"),
   dailyToolbar: document.querySelector("#daily-toolbar"),
   supplementToolbar: document.querySelector("#supplement-toolbar"),
   supplementCount: document.querySelector("#supplement-count"),
@@ -321,65 +313,24 @@ function switchView(view) {
   syncURL();
 }
 
-function renderCIStatus(run, source = "") {
-  if (!run) {
-    elements.ciStatus.innerHTML = '<span class="ci-dot is-unknown" aria-hidden="true"></span><span class="ci-label">CI · 状态暂不可用</span>';
+function renderUpdateStatus(manifest) {
+  if (!manifest) {
+    elements.updateStatus.innerHTML = '<span class="update-dot is-unknown" aria-hidden="true"></span><span class="update-label">数据 · 状态暂不可用</span>';
     return;
   }
-  const rawState = run.conclusion || run.status || "unknown";
-  const stateKey = ["success", "failure", "cancelled", "in_progress", "queued"].includes(rawState)
-    ? rawState : "unknown";
-  const labels = {
-    success: "成功", failure: "失败", cancelled: "已取消", in_progress: "运行中", queued: "排队中", unknown: "未知",
-  };
-  const timestamp = run.updated_at || run.run_started_at || run.created_at;
-  const link = run.html_url || run.run_url || "https://github.com/ZenanH/paper-tracker/actions";
-  elements.ciStatus.innerHTML = `
-    <span class="ci-dot status-${stateKey}" aria-hidden="true"></span>
-    <span class="ci-label">CI · ${labels[stateKey]}</span>
-    <span class="ci-workflow">${escapeHTML(run.name || "GitHub Actions")}</span>
-    <time datetime="${escapeHTML(timestamp || "")}">${escapeHTML(formatDateTime(timestamp))}</time>
-    ${source === "cache" ? '<span class="ci-source">缓存</span>' : source === "fallback" ? '<span class="ci-source">快照</span>' : ""}
-    <a class="ci-link" href="${escapeHTML(link)}" target="_blank" rel="noopener noreferrer">查看</a>`;
-}
-
-function normalizeCIRun(payload) {
-  if (!payload) return null;
-  const run = payload.run || payload;
-  return run && (run.status || run.conclusion || run.updated_at) ? run : null;
-}
-
-async function loadCIStatus() {
-  const cached = parseStorageJSON(STORAGE_KEYS.ciCache, null);
-  const hasFreshCache = cached?.saved_at && Date.now() - cached.saved_at < CI_CACHE_TTL;
-  if (hasFreshCache) renderCIStatus(cached.run, "cache");
-
-  let fallback = null;
-  try {
-    fallback = normalizeCIRun(await fetchJSON("data/ci-status.json", true));
-    if (!hasFreshCache && fallback) renderCIStatus(fallback, "fallback");
-  } catch (error) {
-    // The live API below remains the primary source; the static file is only a fallback.
-  }
-
-  try {
-    const response = await fetch(
-      `https://api.github.com/repos/${CI_REPOSITORY}/actions/runs?per_page=30`,
-      { cache: "no-store", headers: { Accept: "application/vnd.github+json" } },
-    );
-    if (!response.ok) throw new Error(`${response.status}`);
-    const payload = await response.json();
-    const runs = (payload.workflow_runs || [])
-      .filter((run) => CI_WORKFLOWS.has(run.name))
-      .sort((left, right) => Date.parse(right.updated_at || "") - Date.parse(left.updated_at || ""));
-    const latest = runs[0];
-    if (!latest) throw new Error("No workflow run");
-    const run = normalizeCIRun(latest);
-    writeStorage(STORAGE_KEYS.ciCache, JSON.stringify({ saved_at: Date.now(), run }));
-    renderCIStatus(run);
-  } catch (error) {
-    if (!hasFreshCache && !fallback) renderCIStatus(null);
-  }
+  const summary = manifest.collection_summary || {};
+  const okCount = Number(summary.ok || 0);
+  const failedCount = Number(summary.failed || 0);
+  const total = okCount + failedCount;
+  const stateKey = failedCount > 0 ? "failure" : "success";
+  const labels = { success: "正常", failure: "部分失败", unknown: "未知" };
+  const timestamp = manifest.updated_at;
+  const failedDetail = failedCount > 0 ? ` · 失败 ${failedCount}` : "";
+  elements.updateStatus.innerHTML = `
+    <span class="update-dot status-${stateKey}" aria-hidden="true"></span>
+    <span class="update-label">采集 · ${labels[stateKey]}</span>
+    <span class="update-detail">${okCount}/${total} 期刊${failedDetail}</span>
+    <time datetime="${escapeHTML(timestamp || "")}">${escapeHTML(formatDateTime(timestamp))}</time>`;
 }
 
 function bindEvents() {
@@ -448,7 +399,7 @@ async function start() {
     document.querySelectorAll("[data-supplement]").forEach((item) => item.classList.toggle("is-active", item.dataset.supplement === state.supplement));
     if (state.view === "daily") await loadDay(state.date); else switchView("supplements");
     switchView(state.view);
-    loadCIStatus();
+    renderUpdateStatus(state.manifest);
   } catch (error) {
     elements.heading.innerHTML = "";
     elements.list.innerHTML = `<div class="error-state"><div><i data-lucide="circle-alert"></i><strong>网站数据尚未生成</strong><span>${escapeHTML(error.message)}</span></div></div>`;

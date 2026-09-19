@@ -268,7 +268,7 @@ svg { width: 1.1rem; height: 1.1rem; stroke-width: 1.8; }
 .article-footnote { margin-top: 0.42rem; display: flex; flex-wrap: wrap; gap: 0.65rem; color: var(--muted); font-size: 0.69rem; }
 .pending-translation { color: var(--warm); font-size: 0.7rem; font-weight: 650; }
 
-.ci-status {
+.update-status {
   min-height: 34px;
   display: flex;
   align-items: center;
@@ -278,18 +278,15 @@ svg { width: 1.1rem; height: 1.1rem; stroke-width: 1.8; }
   color: var(--muted);
   font-size: 0.73rem;
 }
-.ci-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: var(--muted); }
-.ci-dot.status-success { background: #2f9e72; }
-.ci-dot.status-failure { background: var(--danger); }
-.ci-dot.status-cancelled, .ci-dot.status-unknown { background: var(--muted); }
-.ci-dot.status-in_progress, .ci-dot.status-queued, .ci-dot.is-loading { background: var(--warm); animation: ci-pulse 1.4s infinite ease-in-out; }
-.ci-label { color: var(--ink); font-weight: 700; }
-.ci-workflow { overflow-wrap: anywhere; }
-.ci-status time { white-space: nowrap; }
-.ci-source { padding: 0.12rem 0.34rem; border: 1px solid var(--line); border-radius: 3px; font-size: 0.65rem; }
-.ci-link { margin-left: auto; color: var(--accent-dark); text-decoration: none; }
-.ci-link:hover { text-decoration: underline; text-underline-offset: 3px; }
-@keyframes ci-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+.update-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: var(--muted); }
+.update-dot.status-success { background: #2f9e72; }
+.update-dot.status-failure { background: var(--danger); }
+.update-dot.status-cancelled, .update-dot.status-unknown { background: var(--muted); }
+.update-dot.status-in_progress, .update-dot.status-queued, .update-dot.is-loading { background: var(--warm); animation: update-pulse 1.4s infinite ease-in-out; }
+.update-label { color: var(--ink); font-weight: 700; }
+.update-detail { overflow-wrap: anywhere; }
+.update-status time { white-space: nowrap; margin-left: auto; }
+@keyframes update-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 
 .empty-state, .error-state {
   margin: 2.5rem 0;
@@ -382,7 +379,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
   .workspace { padding-top: 1.2rem; }
   .toolbar { align-items: flex-start; }
   .toolbar-summary { display: none; }
-  .ci-status { padding-top: 0.45rem; }
+  .update-status { padding-top: 0.45rem; }
   .site-footer { padding-left: 1rem; }
 }
 
@@ -400,8 +397,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
   .journal-header { grid-template-columns: minmax(0, 1fr); gap: 0.45rem; }
   .journal-count { justify-self: start; }
   .article-title-zh { font-size: 0.96rem; }
-  .ci-status { align-items: flex-start; }
-  .ci-link { margin-left: 0; }
+  .update-status { align-items: flex-start; }
   .settings-dialog { width: min(94vw, 620px); }
 }
 

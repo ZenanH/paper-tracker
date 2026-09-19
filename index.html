@@ -44,9 +44,6 @@
           </button>
         </nav>
         <div class="header-actions">
-          <a class="icon-button github-link" href="https://github.com/ZenanH/paper-tracker" target="_blank" rel="noopener noreferrer" title="GitHub 仓库" aria-label="打开 GitHub 仓库">
-            <i data-lucide="github"></i>
-          </a>
           <button class="icon-button" id="settings-button" type="button" title="设置" aria-label="打开设置">
             <i data-lucide="settings-2"></i>
           </button>
@@ -74,9 +71,9 @@
           <div class="toolbar-summary" id="toolbar-summary"></div>
         </div>
 
-        <div class="ci-status" id="ci-status" role="status" aria-live="polite">
-          <span class="ci-dot is-loading" aria-hidden="true"></span>
-          <span>正在读取 CI 状态</span>
+        <div class="update-status" id="update-status" role="status" aria-live="polite">
+          <span class="update-dot is-loading" aria-hidden="true"></span>
+          <span>正在读取数据状态</span>
         </div>
 
         <div class="supplement-toolbar" id="supplement-toolbar" hidden>
@@ -115,7 +112,7 @@
             </div>
             <button class="text-button compact-button" id="restore-journals" type="button">恢复全部</button>
           </div>
-          <p class="settings-note">仅影响当前浏览器的显示范围，不改变 GitHub CI 的采集范围。</p>
+          <p class="settings-note">仅影响当前浏览器的显示范围，不改变服务端的采集范围。</p>
           <div id="settings-journal-list" class="settings-journal-list"></div>
         </section>
 

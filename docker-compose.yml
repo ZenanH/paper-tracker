@@ -7,3 +7,17 @@ services:
     ports:
       - "<TAILSCALE_IP>:8899:80"   # Tailscale IP
       - "127.0.0.1:8899:80"        # 本机回环
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      # 数据目录只读挂载：collect/translate 写入后页面即时生效
+      - ./data:/usr/share/nginx/html/data:ro
+      - ./index.html:/usr/share/nginx/html/index.html:ro
+      - ./journal.json:/usr/share/nginx/html/journal.json:ro
+      - ./assets:/usr/share/nginx/html/assets:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s

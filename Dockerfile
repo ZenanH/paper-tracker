@@ -2,8 +2,7 @@
 FROM nginx:1.27-alpine
 
 LABEL org.opencontainers.image.title="paper-tracker" \
-      org.opencontainers.image.description="每日论文追踪静态站点（北京时间展示目标期刊新论文）" \
-      org.opencontainers.image.source="https://github.com/ZenanH/paper-tracker"
+      org.opencontainers.image.description="每日论文追踪静态站点（北京时间展示目标期刊新论文）"
 
 ENV TZ=Asia/Shanghai
 

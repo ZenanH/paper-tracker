@@ -1,6 +1,8 @@
 # 论文追踪
 
-一个由 GitHub Actions 更新、通过 GitHub Pages 发布的个人论文日报。站点按北京时间展示目标期刊每日新上线的论文，并保留滚动三个自然月的历史记录。
+一个在本机自托管运行的个人论文日报。站点按北京时间展示目标期刊每日新上线的论文，并保留滚动三个自然月的历史记录。
+
+数据采集、翻译、指标检查全部在本机完成（Docker + systemd timer），不依赖任何外部 CI 服务。
 
 ## 本地预览
 
@@ -13,7 +15,7 @@ python3 -m http.server 8000
 ## 数据任务
 
 ```bash
-# 从固定 ShowJCR 2025 升级版快照生成期刊主数据
+# 从随仓库保存的官方快照生成期刊主数据（离线，无需联网）
 python3 scripts/sync_cas.py
 
 # 更新昨日论文，并检查新收录的迟到补录
@@ -24,44 +26,45 @@ python3 scripts/collect.py --mode backfill
 
 # 检查出版社页面的影响因子
 python3 scripts/update_metrics.py
+
+# 翻译标题（读取 LLM_* 环境变量）
+python3 scripts/translate.py --limit 1000 --batch-size 8 --workers 2
 ```
 
-中文翻译只在 GitHub Actions 中运行。本地不会调用模型或生成译文缓存；请在 GitHub Actions 页面手动触发 `Backfill paper history`，日常任务由 `Daily paper update` 自动完成。
+## 每日自动化
 
-翻译使用配置好的 OpenAI 兼容 `POST /v1/chat/completions` 接口。模型通过函数调用返回严格结构化结果，CI 会检查每个输入 ID 是否恰好返回一次，并按输入顺序写回。日更只翻译新论文，旧译文升级由 `Backfill paper history` 分批执行；翻译失败时保留英文标题并标记待翻译，不阻塞整日报。
+systemd timer 每天北京时间 01:00 运行 `scripts/paper-tracker-daily.sh`，依次执行：
 
-在仓库 Settings -> Secrets and variables -> Actions 中配置：
+1. `collect.py --mode daily` 采集新论文
+2. `translate.py` 翻译新增标题
+3. 单元测试校验数据
+4. `git commit` 留痕
 
-- Secret `LLM_API_KEY`：接口密钥。
-- Variable `LLM_BASE_URL`：接口基础地址，例如 `https://provider.example/v1`，程序会追加 `/chat/completions`。
-- Variable `LLM_MODEL`：供应商要求的模型名称。
+凭据放在 `~/.openclaw/paper-tracker.env`（权限 0600），包含：
 
-不要把 API Key 写入仓库文件、workflow、网页或对话。切换模型后，缓存引擎标识会变化；如需把三个月历史重新翻译，手动运行 `Backfill paper history` 并设置合适的 `translation_limit`。
+- `LLM_BASE_URL`：接口基础地址，例如 `https://provider.example/v1`
+- `LLM_API_KEY`：接口密钥
+- `LLM_MODEL`：供应商要求的模型名称
 
-## 自动化
+不要把 API Key 写入仓库文件、日志、网页或对话。切换模型后缓存引擎标识会变化；如需把三个月历史重新翻译，运行 `translate.py --retranslate-existing`。
 
-- `Daily paper update`：北京时间每天 01:00 采集并翻译新标题。
-- `Backfill paper history`：手动执行，分批回填三个月数据与翻译。
-- `Quarterly impact factor check`：每年 1、4、7、10 月检查出版社指标页面。
-- `Deploy GitHub Pages`：`main` 分支更新后发布静态站点。
-
-采集失败与“当天无论文”分开记录。影响因子只有在页面同时出现明确的 JIF 标签和年份时才会自动覆盖旧值。
+采集失败与"当天无论文"分开记录。影响因子只有在页面同时出现明确的 JIF 标签和年份时才会自动覆盖旧值。
 
 ## 数据口径
 
 - 业务时区：`Asia/Shanghai`
 - 归档日期：Crossref 首次在线发表日期优先
-- 中科院分区：2025 升级版，数据整理来源 ShowJCR 固定快照
+- 中科院分区：2025 升级版，官方平台停服前快照，随仓库保存并按键值校验锁定
 - 去重：DOI 优先
-- 翻译：GitHub Actions 内调用配置的 OpenAI 兼容模型，严格校验结构化输出后写入持久缓存
-- CI 状态：页面优先读取公开 GitHub Actions 状态，并用本地浏览器缓存和静态快照兜底
-- 页面设置：可在当前浏览器隐藏/恢复期刊并切换浅色、深色或跟随系统主题；不会修改仓库采集配置
+- 翻译：本机调用配置的 OpenAI 兼容模型，严格校验结构化输出后写入持久缓存
+- 数据状态：页面顶部展示最近一次采集的期刊成功/失败数与更新时间
+- 页面设置：可在当前浏览器隐藏/恢复期刊并切换浅色、深色或跟随系统主题；不会修改服务端采集配置
 
 完整约定见 [AGENTS.md](AGENTS.md)。
 
 ## Docker 运行
 
-仓库提供多阶段 `Dockerfile`（nginx:alpine 承载静态站点，gzip 预压缩）。
+`Dockerfile` 用 nginx:alpine 承载静态站点，数据目录只读挂载，数据更新即时生效。
 
 ```bash
 # 构建
@@ -72,6 +75,9 @@ docker run -d --name paper-tracker --restart unless-stopped \
   -p <TAILSCALE_IP>:8899:80 \
   -p 127.0.0.1:8899:80 \
   -e TZ=Asia/Shanghai \
+  -v "$PWD/data:/usr/share/nginx/html/data:ro" \
+  -v "$PWD/index.html:/usr/share/nginx/html/index.html:ro" \
+  -v "$PWD/journal.json:/usr/share/nginx/html/journal.json:ro" \
   paper-tracker:latest
 ```
 
@@ -82,7 +88,7 @@ docker run -d --name paper-tracker --restart unless-stopped \
 
 ### 更新站点数据
 
-站点为纯静态，数据更新后重新构建镜像即可：
+数据目录已只读挂载，`collect.py` 写入后页面即时可见，无需重建镜像或重启容器。仅在改动 `index.html`、`assets/` 或 `nginx.conf` 时需要重建：
 
 ```bash
 docker build -t paper-tracker:latest . && docker restart paper-tracker
