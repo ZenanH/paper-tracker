@@ -2,8 +2,8 @@
 """已归档状态服务 —— 为论文追踪提供持久化的「已读归档」存储。
 
 接口：
-  GET  /api/archive   → {"updated_at":..., "items":{<article_id>:{...}}}
-  POST /api/archive   → {"action":"add","items":[{...}]} 或 {"action":"remove","ids":[...]}
+  GET  /api/archive   → {"updated_at":..., "items":{...}, "cleared_items":{...}}
+  POST /api/archive   → add/remove/clear/restore_cleared
   GET  /api/healthz   → 健康检查
 
 存储：ARCHIVE_FILE（默认 /archive/archive.json），原子写入，权限 0644。
@@ -20,6 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ARCHIVE_FILE = Path(os.environ.get("ARCHIVE_FILE", "/archive/archive.json"))
+MANIFEST_FILE = Path(os.environ.get("MANIFEST_FILE", "/data/manifest.json"))
 PORT = int(os.environ.get("PORT", "8080"))
 BEIJING = timezone(timedelta(hours=8))
 LOCK = threading.Lock()
@@ -37,7 +38,35 @@ def now_iso() -> str:
 
 
 def empty_state() -> dict:
-    return {"updated_at": None, "items": {}}
+    return {"updated_at": None, "items": {}, "cleared_items": {}}
+
+
+def retention_cutoff() -> str | None:
+    try:
+        manifest = json.loads(MANIFEST_FILE.read_text(encoding="utf-8"))
+        value = ((manifest.get("retention") or {}).get("start") or "").strip()
+        datetime.strptime(value, "%Y-%m-%d")
+        return value
+    except (AttributeError, json.JSONDecodeError, OSError, TypeError, ValueError):
+        return None
+
+
+def prune_state(state: dict) -> bool:
+    cutoff = retention_cutoff()
+    if not cutoff:
+        return False
+    changed = False
+    for bucket_name in ("items", "cleared_items"):
+        bucket = state[bucket_name]
+        stale_ids = [
+            item_id
+            for item_id, item in bucket.items()
+            if isinstance(item, dict) and item.get("date") and str(item["date"]) < cutoff
+        ]
+        for item_id in stale_ids:
+            bucket.pop(item_id, None)
+            changed = True
+    return changed
 
 
 def read_state() -> dict:
@@ -49,10 +78,20 @@ def read_state() -> dict:
         return empty_state()
     if not isinstance(data, dict):
         return empty_state()
-    if not isinstance(data.get("items"), dict):
-        data["items"] = {}
+    for bucket_name in ("items", "cleared_items"):
+        if not isinstance(data.get(bucket_name), dict):
+            data[bucket_name] = {}
     data.setdefault("updated_at", None)
     return data
+
+
+def read_pruned_state() -> dict:
+    with LOCK:
+        state = read_state()
+        if prune_state(state):
+            state["updated_at"] = now_iso()
+            write_state(state)
+        return state
 
 
 def write_state(state: dict) -> None:
@@ -82,40 +121,67 @@ def clean_item(raw: dict) -> dict | None:
 def apply_archive(payload: dict) -> dict:
     """在锁内读改写，返回新状态。"""
     action = str(payload.get("action") or "").strip()
-    if action not in {"add", "remove"}:
-        raise ValueError("action 必须是 add 或 remove")
+    if action not in {"add", "remove", "clear", "restore_cleared"}:
+        raise ValueError("action 必须是 add、remove、clear 或 restore_cleared")
 
     with LOCK:
         state = read_state()
         items = state["items"]
+        cleared_items = state["cleared_items"]
+        changed = prune_state(state)
 
         if action == "add":
             raw_items = payload.get("items")
             if not isinstance(raw_items, list):
                 raise ValueError("add 需要 items 数组")
-            added = 0
             for raw in raw_items:
                 item = clean_item(raw)
                 if not item:
                     continue
-                merged = dict(items.get(item["id"]) or {})
+                merged = dict(items.get(item["id"]) or cleared_items.pop(item["id"], None) or {})
                 merged.update(item)
                 merged["archived_at"] = merged.get("archived_at") or now_iso()
+                merged.pop("cleared_at", None)
                 items[item["id"]] = merged
-                added += 1
-            if added:
+                changed = True
+            if changed:
                 state["updated_at"] = now_iso()
                 write_state(state)
             return state
 
         raw_ids = payload.get("ids")
         if not isinstance(raw_ids, list):
-            raise ValueError("remove 需要 ids 数组")
-        removed = 0
-        for raw_id in raw_ids:
-            if isinstance(raw_id, str) and items.pop(raw_id, None) is not None:
-                removed += 1
-        if removed:
+            raise ValueError(f"{action} 需要 ids 数组")
+
+        if action == "remove":
+            for raw_id in raw_ids:
+                if not isinstance(raw_id, str):
+                    continue
+                removed = items.pop(raw_id, None)
+                removed = cleared_items.pop(raw_id, None) or removed
+                changed = removed is not None or changed
+        elif action == "clear":
+            for raw_id in raw_ids:
+                if not isinstance(raw_id, str):
+                    continue
+                item = items.pop(raw_id, None)
+                if item is None:
+                    continue
+                item["cleared_at"] = item.get("cleared_at") or now_iso()
+                cleared_items[raw_id] = item
+                changed = True
+        else:
+            for raw_id in raw_ids:
+                if not isinstance(raw_id, str):
+                    continue
+                item = cleared_items.pop(raw_id, None)
+                if item is None:
+                    continue
+                item.pop("cleared_at", None)
+                items[raw_id] = item
+                changed = True
+
+        if changed:
             state["updated_at"] = now_iso()
             write_state(state)
         return state
@@ -148,7 +214,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"status": "ok"})
             return
         if path == "/api/archive":
-            self._send(200, read_state())
+            self._send(200, read_pruned_state())
             return
         self._send(404, {"error": "not found"})
 

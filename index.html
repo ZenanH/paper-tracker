@@ -25,9 +25,9 @@
     <link rel="shortcut icon" href="assets/favicon.ico?v=c3cd5d7ef3" />
     <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=44ad171dcf" />
     <link rel="mask-icon" href="assets/favicon.svg?v=25b680167f" color="#0f766e" />
-    <link rel="stylesheet" href="assets/styles.css?v=3db860fa84" />
+    <link rel="stylesheet" href="assets/styles.css?v=0653197495" />
     <script src="assets/vendor/lucide.min.js?v=3411692820" defer></script>
-    <script src="assets/app.js?v=9b38b39484" type="module"></script>
+    <script src="assets/app.js?v=30010bfda7" type="module"></script>
   </head>
   <body>
     <a class="skip-link" href="#paper-list">跳到论文列表</a>
@@ -160,6 +160,17 @@
             <button type="button" data-theme-option="light">浅色</button>
             <button type="button" data-theme-option="dark">深色</button>
           </div>
+        </section>
+
+        <section class="settings-section">
+          <div class="settings-section-heading">
+            <div>
+              <strong>归档管理</strong>
+              <span id="settings-archive-summary">没有已清空的归档</span>
+            </div>
+            <button class="text-button compact-button" id="settings-restore-archive" type="button" disabled>恢复归档</button>
+          </div>
+          <p class="settings-note">“清空归档”只隐藏已确认看完的论文，仍保留已读状态。恢复后会重新显示在“已归档”中。</p>
         </section>
       </div>
     </dialog>

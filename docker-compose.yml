@@ -5,13 +5,13 @@ services:
     container_name: paper-tracker
     restart: unless-stopped
     ports:
-      - "<TAILSCALE_IP>:8899:80"   # Tailscale IP
-      - "127.0.0.1:8899:80"        # 本机回环
+      - "${PAPER_TRACKER_TAILSCALE_IP:-<TAILSCALE_IP>}:${PAPER_TRACKER_PORT:-8899}:80"
+      - "127.0.0.1:${PAPER_TRACKER_PORT:-8899}:80"
     environment:
       - TZ=Asia/Shanghai
     volumes:
       # 数据目录只读挂载：collect/translate 写入后页面即时生效
-      - ./data:/usr/share/nginx/html/data:ro
+      - ${PAPER_TRACKER_DATA_DIR:-./data}:/usr/share/nginx/html/data:ro
       - ./index.html:/usr/share/nginx/html/index.html:ro
       - ./journal.json:/usr/share/nginx/html/journal.json:ro
       - ./favicon.ico:/usr/share/nginx/html/favicon.ico:ro
@@ -33,17 +33,36 @@ services:
     container_name: paper-tracker-archive
     restart: unless-stopped
     # 以宿主用户身份运行，归档文件属主为 zhuo 而非 root
-    user: "1000:1000"
+    user: "${PAPER_TRACKER_UID:-1000}:${PAPER_TRACKER_GID:-1000}"
     environment:
       - TZ=Asia/Shanghai
       - ARCHIVE_FILE=/archive/archive.json
+      - MANIFEST_FILE=/data/manifest.json
       - PORT=8080
     volumes:
       # 可写卷：归档状态独立于静态数据目录
-      - ./archive:/archive
+      - ${PAPER_TRACKER_ARCHIVE_DIR:-./archive}:/archive
+      - ${PAPER_TRACKER_DATA_DIR:-./data}:/data:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/healthz"]
       interval: 30s
       timeout: 3s
       retries: 3
       start_period: 5s
+
+  tasks:
+    image: paper-tracker-tasks:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.tasks
+    profiles: ["tasks"]
+    user: "${PAPER_TRACKER_UID:-1000}:${PAPER_TRACKER_GID:-1000}"
+    environment:
+      - TZ=Asia/Shanghai
+      - PAPER_TRACKER_DATA_DIR=/app/data
+      - CROSSREF_MAILTO=${CROSSREF_MAILTO:-}
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-}
+    volumes:
+      - ${PAPER_TRACKER_DATA_DIR:-./data}:/app/data

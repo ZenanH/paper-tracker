@@ -40,11 +40,14 @@ systemd timer 每天北京时间 01:00 运行 `scripts/paper-tracker-daily.sh`�
 3. 单元测试校验数据
 4. `git commit` 留痕
 
-凭据放在 `~/.openclaw/paper-tracker.env`（权限 0600），包含：
+复制 `.env.example` 为项目根目录的 `.env`，并将权限设为 `0600`。Compose 会自动读取该文件；`.env` 已被 Git 忽略。主要配置包括：
 
+- `CROSSREF_MAILTO`：Crossref 请求联系邮箱，可留空
 - `LLM_BASE_URL`：接口基础地址，例如 `https://provider.example/v1`
 - `LLM_API_KEY`：接口密钥
 - `LLM_MODEL`：供应商要求的模型名称
+- `PAPER_TRACKER_DATA_DIR`：论文数据及翻译缓存的宿主机持久目录，默认 `./data`
+- `PAPER_TRACKER_ARCHIVE_DIR`：已读归档状态的宿主机持久目录，默认 `./archive`
 
 不要把 API Key 写入仓库文件、日志、网页或对话。切换模型后缓存引擎标识会变化；如需把三个月历史重新翻译，运行 `translate.py --retranslate-existing`。
 
@@ -77,7 +80,9 @@ systemd timer 每天北京时间 01:00 运行 `scripts/paper-tracker-daily.sh`�
 - 勾选单篇 → 标记为已读并归档
 - 勾选期刊级「全部已读」→ 该刊当前列表整批归档
 - 已归档论文从「每日论文」移出，可在「已归档」标签查看
-- 「已归档」中可按单篇、可按期刊整组勾选，然后恢复所选（方便复查）
+- 「已归档」中可按单篇、可按期刊整组勾选，然后恢复所选为未读（方便复查）
+- “清空归档”会从归档页隐藏全部当前归档，但仍保持已读，不会重新出现在每日或历史列表
+- 设置中的“恢复归档”可把已清空的记录重新放回“已归档”页面
 
 归档状态由 `archive-api` 服务持久化（容器内部服务，不对外暴露端口，经 nginx `/api/` 反代），
 存储在 `archive/archive.json`，跨设备共享、清浏览器缓存不丢失。
@@ -86,7 +91,7 @@ systemd timer 每天北京时间 01:00 运行 `scripts/paper-tracker-daily.sh`�
 
 ## Docker 运行
 
-`Dockerfile` 用 nginx:alpine 承载静态站点，数据目录只读挂载，数据更新即时生效。
+`Dockerfile` 用 nginx:alpine 承载静态站点，`Dockerfile.tasks` 承载采集、翻译和数据维护任务。数据与翻译缓存写入 `PAPER_TRACKER_DATA_DIR`，归档状态写入 `PAPER_TRACKER_ARCHIVE_DIR`。
 
 ```bash
 # 构建
@@ -103,14 +108,31 @@ docker run -d --name paper-tracker --restart unless-stopped \
   paper-tracker:latest
 ```
 
-或使用 `docker-compose up -d`。
+推荐使用 Compose：
+
+```bash
+cp .env.example .env
+chmod 600 .env
+# 编辑 .env 后启动站点与归档 API
+docker compose up -d --build
+```
 
 访问：`http://<TAILSCALE_IP>:8899/`（Tailscale 组网内）或 `http://127.0.0.1:8899/`（本机）。
 健康检查端点：`/healthz`。
 
 ### 更新站点数据
 
-数据目录已只读挂载，`collect.py` 写入后页面即时可见，无需重建镜像或重启容器。仅在改动 `index.html`、`assets/` 或 `nginx.conf` 时需要重建：
+数据任务通过按需启动的 `tasks` profile 运行，写入后页面即时可见：
+
+```bash
+docker compose --profile tasks run --rm tasks python3 scripts/collect.py --mode daily
+docker compose --profile tasks run --rm tasks python3 scripts/translate.py --limit 300
+docker compose --profile tasks run --rm tasks python3 scripts/collect.py --mode backfill
+docker compose --profile tasks run --rm tasks python3 scripts/update_metrics.py
+docker compose --profile tasks run --rm tasks python3 scripts/validate_data.py
+```
+
+每次采集会按 `manifest.retention.start` 清理滚动三个自然月之外的日期文件、补录记录和不再被保留论文引用的翻译缓存。仅在改动 `index.html`、`assets/`、容器文件或 `nginx.conf` 时需要重建：
 
 ```bash
 docker build -t paper-tracker:latest . && docker restart paper-tracker
@@ -121,7 +143,7 @@ docker build -t paper-tracker:latest . && docker restart paper-tracker
 `.github/workflows/docker-ci.yml` 在每次提交和 Pull Request 时运行：
 
 - `ubuntu-latest`、`windows-latest`、`macos-latest`：执行 Python 语法检查、单元测试和静态数据校验。
-- `ubuntu-latest`：在三种系统测试全部通过后，构建站点与 `archive-api` 两个 Linux Docker 镜像。
+- `ubuntu-latest`：在三种系统测试全部通过后，构建站点、`archive-api` 与任务容器三个 Linux Docker 镜像。
 - 推送到 `main`：发布 `linux/amd64` 和 `linux/arm64` 多架构镜像到 GitHub Container Registry，并生成 `latest` 与 `sha-*` 标签。
 - Pull Request：只构建验证，不发布镜像。
 
@@ -130,6 +152,7 @@ docker build -t paper-tracker:latest . && docker restart paper-tracker
 ```text
 ghcr.io/zenanh/paper-tracker:latest
 ghcr.io/zenanh/paper-tracker-archive:latest
+ghcr.io/zenanh/paper-tracker-tasks:latest
 ```
 
 CI 使用仓库自带的 `GITHUB_TOKEN` 发布镜像，不需要配置 LLM 或 Crossref 凭据。

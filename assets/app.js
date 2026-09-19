@@ -21,7 +21,7 @@ const state = {
   supplements: null,
   theme: "system",
   settingsGroups: {},
-  archive: { items: {}, updated_at: null },
+  archive: { items: {}, cleared_items: {}, updated_at: null },
   archiveSelection: new Set(),
 };
 
@@ -54,6 +54,8 @@ const elements = {
   settingsDialog: document.querySelector("#settings-dialog"),
   settingsJournalList: document.querySelector("#settings-journal-list"),
   settingsJournalSummary: document.querySelector("#settings-journal-summary"),
+  settingsArchiveSummary: document.querySelector("#settings-archive-summary"),
+  settingsRestoreArchive: document.querySelector("#settings-restore-archive"),
 };
 
 const escapeHTML = (value = "") => String(value).replace(/[&<>'"]/g, (char) => ({
@@ -181,6 +183,21 @@ function groupBy(items, key) {
   }, {});
 }
 
+function normalizeArchive(data) {
+  return {
+    items: data && typeof data.items === "object" && data.items ? data.items : {},
+    cleared_items: data && typeof data.cleared_items === "object" && data.cleared_items ? data.cleared_items : {},
+    updated_at: data?.updated_at || null,
+  };
+}
+
+function updateSettingsArchiveUI() {
+  const count = Object.keys(state.archive.cleared_items).length;
+  elements.settingsArchiveSummary.textContent = count ? `${count} 篇已清空` : "没有已清空的归档";
+  elements.settingsRestoreArchive.disabled = count === 0;
+  elements.settingsRestoreArchive.textContent = count ? `恢复归档 (${count})` : "恢复归档";
+}
+
 function renderSettings() {
   const groups = groupBy(state.journals, "group");
   const visibleCount = visibleJournals().length;
@@ -219,6 +236,7 @@ function renderSettings() {
       syncURL();
     });
   });
+  updateSettingsArchiveUI();
 }
 
 function journalHeader(journal, count, options = {}) {
@@ -287,7 +305,10 @@ function renderGrouped(articles, supplementType = null, options = {}) {
     && !(archivable && isArchived(article.id))
   ));
   if (!visible.length) {
-    elements.list.innerHTML = `<div class="empty-state"><div><i data-lucide="inbox"></i><strong>${archivable ? "本日论文已全部归档" : "当前范围没有论文"}</strong><span>${archivable ? "可到「已归档」查看或恢复。" : "可调整日期或期刊筛选。"}</span></div></div>`;
+    const archiveHint = Object.keys(state.archive.cleared_items).length
+      ? "已读论文已从列表移出；清空的归档可在右上角设置中恢复显示。"
+      : "可到「已归档」查看或恢复为未读。";
+    elements.list.innerHTML = `<div class="empty-state"><div><i data-lucide="inbox"></i><strong>${archivable ? "本日论文已全部归档" : "当前范围没有论文"}</strong><span>${archivable ? archiveHint : "可调整日期或期刊筛选。"}</span></div></div>`;
     renderIcons();
     return 0;
   }
@@ -376,7 +397,7 @@ function renderSupplements() {
 }
 
 function isArchived(articleId) {
-  return Boolean(articleId && state.archive.items[articleId]);
+  return Boolean(articleId && (state.archive.items[articleId] || state.archive.cleared_items[articleId]));
 }
 
 function archiveItemsVisible() {
@@ -393,7 +414,10 @@ function renderArchive() {
   elements.status.replaceChildren();
 
   if (!items.length) {
-    elements.list.innerHTML = `<div class="empty-state"><div><i data-lucide="archive"></i><strong>这一天还没有已归档论文</strong><span>在「每日论文」或「历史」里勾选读过的论文、或整本期刊的「全部已读」即可归档。</span></div></div>`;
+    const note = Object.keys(state.archive.cleared_items).length
+      ? "已清空的归档仍保持已读，可在右上角设置中恢复显示。"
+      : "在「每日论文」或「历史」里勾选读过的论文、或整本期刊的「全部已读」即可归档。";
+    elements.list.innerHTML = `<div class="empty-state"><div><i data-lucide="archive"></i><strong>这一天还没有已归档论文</strong><span>${note}</span></div></div>`;
     updateArchiveSelectionUI();
     renderIcons();
     return;
@@ -605,16 +629,18 @@ function updateArchiveCount() {
   const count = Object.keys(state.archive.items).length;
   elements.archiveCount.hidden = count === 0;
   elements.archiveCount.textContent = count;
+  elements.archiveClear.disabled = count === 0;
 }
 
 async function loadArchive() {
   try {
     const data = await fetchJSON(ARCHIVE_API);
-    state.archive = { items: data.items || {}, updated_at: data.updated_at || null };
+    state.archive = normalizeArchive(data);
   } catch (error) {
-    state.archive = { items: {}, updated_at: null };
+    state.archive = normalizeArchive(null);
   }
   updateArchiveCount();
+  updateSettingsArchiveUI();
 }
 
 async function archiveArticles(articles) {
@@ -634,13 +660,14 @@ async function archiveArticles(articles) {
         translation_status: article.translation_status || (article.title_zh ? "translated" : "pending"),
       })),
     });
-    state.archive = { items: data.items || {}, updated_at: data.updated_at || null };
+    state.archive = normalizeArchive(data);
   } catch (error) {
     if (window.console && console.error) console.error("[paper-tracker] archive failed", error);
     showError(`归档失败：${error.message}`, () => archiveArticles(articles));
     return false;
   }
   updateArchiveCount();
+  updateSettingsArchiveUI();
   renderCurrent();
   return true;
 }
@@ -650,7 +677,7 @@ async function restoreArticles(ids) {
   const snapshot = [...ids];
   try {
     const data = await postArchive({ action: "remove", ids });
-    state.archive = { items: data.items || {}, updated_at: data.updated_at || null };
+    state.archive = normalizeArchive(data);
   } catch (error) {
     if (window.console && console.error) console.error("[paper-tracker] restore failed", error);
     showError(`恢复失败：${error.message}`, () => restoreArticles(snapshot));
@@ -658,8 +685,48 @@ async function restoreArticles(ids) {
   }
   ids.forEach((id) => state.archiveSelection.delete(id));
   updateArchiveCount();
+  updateSettingsArchiveUI();
   renderCurrent();
   return true;
+}
+
+async function clearArchive(ids) {
+  if (!ids.length) return true;
+  const snapshot = [...ids];
+  try {
+    state.archive = normalizeArchive(await postArchive({ action: "clear", ids }));
+  } catch (error) {
+    showError(`清空归档失败：${error.message}`, () => clearArchive(snapshot));
+    return false;
+  }
+  state.archiveSelection.clear();
+  updateArchiveCount();
+  updateSettingsArchiveUI();
+  renderCurrent();
+  return true;
+}
+
+async function restoreClearedArchive(ids) {
+  if (!ids.length) return true;
+  const snapshot = [...ids];
+  try {
+    state.archive = normalizeArchive(await postArchive({ action: "restore_cleared", ids }));
+  } catch (error) {
+    showError(`恢复归档失败：${error.message}`, () => restoreClearedArchive(snapshot));
+    return false;
+  }
+  updateArchiveCount();
+  renderSettings();
+  renderCurrent();
+  return true;
+}
+
+function currentArticles() {
+  if (state.view === "daily") return state.dailyDay?.articles || [];
+  if (state.view === "history" && state.mode === "supplements") {
+    return [...(state.supplements?.late_additions || []), ...(state.supplements?.date_pending || [])];
+  }
+  return state.day?.articles || [];
 }
 
 function bindEvents() {
@@ -692,7 +759,7 @@ function bindEvents() {
     const target = event.target;
     if (!(target instanceof HTMLInputElement)) return;
     if (target.dataset.archiveArticle) {
-      const article = (state.day?.articles || []).find((item) => item.id === target.dataset.archiveArticle);
+      const article = currentArticles().find((item) => item.id === target.dataset.archiveArticle);
       if (target.checked && article) {
         target.disabled = true;
         archiveArticles([article]).then((ok) => {
@@ -706,7 +773,7 @@ function bindEvents() {
     }
     if (target.dataset.archiveJournal) {
       const journalId = target.dataset.archiveJournal;
-      const articles = (state.day?.articles || []).filter((item) => item.journal_id === journalId && item.content_type === "article");
+      const articles = currentArticles().filter((item) => item.journal_id === journalId && item.content_type === "article");
       if (target.checked) {
         target.disabled = true;
         archiveArticles(articles).then((ok) => {
@@ -752,9 +819,8 @@ function bindEvents() {
   elements.archiveClear.addEventListener("click", () => {
     const ids = Object.keys(state.archive.items);
     if (!ids.length) return;
-    if (!window.confirm(`确定清空全部 ${ids.length} 篇归档记录？论文会重新出现在「每日论文」中。`)) return;
-    state.archiveSelection.clear();
-    restoreArticles(ids);
+    if (!window.confirm(`确定清空全部 ${ids.length} 篇归档记录？这些论文将从归档页隐藏，但仍保持已读，可在设置中恢复归档。`)) return;
+    clearArchive(ids);
   });
   elements.archiveRestore.addEventListener("click", () => {
     restoreArticles([...state.archiveSelection]);
@@ -767,6 +833,9 @@ function bindEvents() {
     renderSettings();
     renderCurrent();
     syncURL();
+  });
+  elements.settingsRestoreArchive.addEventListener("click", () => {
+    restoreClearedArchive(Object.keys(state.archive.cleared_items));
   });
   document.querySelectorAll("[data-theme-option]").forEach((button) => button.addEventListener("click", () => {
     setTheme(button.dataset.themeOption);

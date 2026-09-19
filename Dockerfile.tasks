@@ -1,0 +1,16 @@
+FROM python:3.12-alpine
+
+LABEL org.opencontainers.image.title="paper-tracker-tasks" \
+      org.opencontainers.image.description="论文追踪采集、翻译、指标与数据维护任务"
+
+ENV TZ=Asia/Shanghai \
+    PYTHONUNBUFFERED=1 \
+    PAPER_TRACKER_DATA_DIR=/app/data
+
+RUN apk add --no-cache tzdata
+
+WORKDIR /app
+COPY journal.json ./journal.json
+COPY scripts/ ./scripts/
+
+CMD ["python3", "scripts/validate_data.py"]

@@ -1,9 +1,13 @@
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
+import collect
 from collect import CrossrefClient, article_from_item, classify_title, gather_for_journal, publication_date
 from update_metrics import parse_metric
 
@@ -85,6 +89,45 @@ class PipelineTests(unittest.TestCase):
         )
         self.assertEqual(len(items), 2)
         self.assertEqual(used, "1234-5678,8765-4321")
+
+    def test_translation_cache_keeps_only_titles_in_retained_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            day_path = root / "days" / "2026-09-18.json"
+            day_path.parent.mkdir()
+            day_path.write_text(
+                json.dumps({"articles": [{"title_en": "Retained day title"}]}),
+                encoding="utf-8",
+            )
+            (root / "supplements.json").write_text(
+                json.dumps(
+                    {
+                        "late_additions": [{"title_en": "Retained supplement title"}],
+                        "date_pending": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "translations.json").write_text(
+                json.dumps(
+                    {
+                        "entries": {
+                            "day": {"source": "Retained day title"},
+                            "supplement": {"source": "Retained supplement title"},
+                            "expired": {"source": "Expired title"},
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.object(collect, "DATA_DIR", root), patch.object(
+                collect, "iter_day_files", return_value=[day_path]
+            ):
+                removed = collect.prune_translation_cache()
+
+            self.assertEqual(removed, 1)
+            cache = json.loads((root / "translations.json").read_text(encoding="utf-8"))
+            self.assertEqual(set(cache["entries"]), {"day", "supplement"})
 
 
 if __name__ == "__main__":

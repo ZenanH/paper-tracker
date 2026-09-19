@@ -66,6 +66,10 @@ jobs:
             context: ./server
             file: ./server/Dockerfile
             image: ghcr.io/zenanh/paper-tracker-archive
+          - name: tasks
+            context: .
+            file: ./Dockerfile.tasks
+            image: ghcr.io/zenanh/paper-tracker-tasks
 
     steps:
       - name: Check out repository

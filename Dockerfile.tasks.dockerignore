@@ -1,0 +1,13 @@
+.git
+.github
+.env
+archive
+assets
+data
+server
+tests
+README.md
+AGENTS.md
+docker-compose.yml
+Dockerfile
+.dockerignore

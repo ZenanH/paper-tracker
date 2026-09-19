@@ -13,7 +13,7 @@ from typing import Any, Iterable
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT / "data"
+DATA_DIR = Path(os.environ.get("PAPER_TRACKER_DATA_DIR", ROOT / "data")).expanduser().resolve()
 DAYS_DIR = DATA_DIR / "days"
 BEIJING = ZoneInfo("Asia/Shanghai")
 # Keep the default namespace stable for DOI-less article fallback IDs created by

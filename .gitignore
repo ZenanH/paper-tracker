@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 .pytest_cache/
 .cache/
+.env
 
 # 归档状态由服务写入；保留在版本库以便随每日提交留痕
 # （如需忽略，取消下一行注释）

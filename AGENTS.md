@@ -104,7 +104,7 @@
 ## 翻译
 
 - 在本机调用用户配置的 OpenAI 兼容 `POST /v1/chat/completions` 接口；模型调用只在每日任务中按需进行。
-- 必填配置为环境变量 `LLM_API_KEY`、`LLM_BASE_URL` 和 `LLM_MODEL`（存放于 `~/.openclaw/paper-tracker.env`，权限 0600）。基础地址通常填写到 `/v1`，脚本追加 `/chat/completions`；也兼容直接填写完整 endpoint。
+- 必填配置为环境变量 `LLM_API_KEY`、`LLM_BASE_URL` 和 `LLM_MODEL`（存放于项目根目录 `.env`，权限 0600，Git 忽略）。基础地址通常填写到 `/v1`，脚本追加 `/chat/completions`；也兼容直接填写完整 endpoint。
 - API 请求使用单一 `translate_titles` function tool，函数参数使用 `strict: true`、`additionalProperties: false`，要求返回 `{translations: [{id, title_zh}]}`。
 - 不能仅相信模型或 `strict`：程序必须检查 JSON 可解析、ID 集合完全一致、没有重复/多余/缺失 ID、中文标题非空，并按输入 ID 顺序重排。
 - 如果供应商不接受 `tool_choice`，首次请求失败时允许重试一次并去掉强制选择；仍须通过同样的结构和语义校验。普通自然语言或不完整结果不得写入数据。
@@ -145,9 +145,12 @@
 - 单篇勾选归档该篇；期刊级「全部已读」勾选归档该刊当前列表全部论文。
 - 不设「全部取消」逻辑；归档后论文从每日列表移出，计数单独标注。
 - 「已归档」标签列出全部已读论文，支持单篇与期刊整组勾选后「恢复所选」，便于复查。
+- 「清空归档」将当前可见归档转为已确认看完的隐藏归档；论文仍保持已读，不重新出现在每日或历史列表。
+- 设置中提供「恢复归档」，将清空后隐藏的归档重新显示；这与将论文恢复为未读的「恢复所选」含义不同。
 - 归档状态持久化在 `archive/archive.json`，由容器内 `archive-api` 服务读写（经 nginx `/api/` 反代，不对外暴露端口）。
 - 归档跨设备共享；清除浏览器缓存不影响。归档文件属主须为站点使用者，便于宿主维护。
 - 归档只记录阅读状态，不修改采集数据、不改动 `data/` 目录，也不影响每日任务。
+- Docker 使用 `.env` 中的 `PAPER_TRACKER_DATA_DIR` 和 `PAPER_TRACKER_ARCHIVE_DIR` 指定宿主持久目录；论文数据、补录和翻译缓存随滚动三个自然月窗口清理。
 
 ## 实施与验收
 

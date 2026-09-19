@@ -204,6 +204,43 @@ def prune(reference: date) -> None:
     ]
     supplements["updated_at"] = iso_now()
     write_json(DATA_DIR / "supplements.json", supplements)
+    prune_translation_cache()
+
+
+def prune_translation_cache() -> int:
+    translations_path = DATA_DIR / "translations.json"
+    translations = read_json(translations_path, {})
+    entries = translations.get("entries") if isinstance(translations, dict) else None
+    if not isinstance(entries, dict):
+        return 0
+
+    active_titles = set()
+    for path in iter_day_files():
+        payload = read_json(path, {})
+        active_titles.update(
+            article.get("title_en")
+            for article in payload.get("articles", [])
+            if article.get("title_en")
+        )
+    supplements = read_json(DATA_DIR / "supplements.json", {})
+    for bucket in ("late_additions", "date_pending"):
+        active_titles.update(
+            article.get("title_en")
+            for article in supplements.get(bucket, [])
+            if article.get("title_en")
+        )
+
+    retained = {
+        key: entry
+        for key, entry in entries.items()
+        if isinstance(entry, dict) and entry.get("source") in active_titles
+    }
+    removed = len(entries) - len(retained)
+    if removed:
+        translations["entries"] = retained
+        translations["updated_at"] = iso_now()
+        write_json(translations_path, translations)
+    return removed
 
 
 def gather_for_journal(
