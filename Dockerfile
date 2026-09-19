@@ -14,12 +14,9 @@ COPY index.html journal.json ./
 COPY assets/ ./assets/
 COPY data/   ./data/
 
-# 预压缩：静态 JSON/JS/CSS 体积可减 ~70%，配合 gzip_static
-RUN set -eux; \
-    apk add --no-cache gzip; \
-    find . -type f \( -name '*.json' -o -name '*.js' -o -name '*.css' -o -name '*.html' -o -name '*.svg' \) \
-      -exec gzip -9 -k -f {} \; ; \
-    apk del gzip
+# 不再预压缩：index.html / journal.json / data 均以只读卷挂载，
+# 镜像内的 .gz 会与挂载内容脱节，被 nginx gzip_static 优先命中而返回过期内容。
+# 动态 gzip 由 nginx.conf 的 `gzip on` 承担。
 
 EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
