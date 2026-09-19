@@ -344,7 +344,7 @@ function renderDaily() {
   const archivedCount = countArchived(articles);
   const archivedNote = archivedCount ? ` · 已归档 ${archivedCount} 篇` : "";
   elements.dailyDate.textContent = date ? formatDate(date) : "昨日";
-  elements.heading.innerHTML = `<h1>${escapeHTML(formatDate(date))}</h1><p>${count} 篇新论文 · 按首次在线发表日期归档${archivedNote}</p>`;
+  elements.heading.innerHTML = `<p>${count} 篇新论文 · 按首次在线发表日期归档${archivedNote}</p>`;
   elements.summary.textContent = state.manifest.updated_at ? `最近更新 ${formatDateTime(state.manifest.updated_at)}` : "";
   renderSourceFailures(state.dailyDay);
   renderGrouped(articles, null, { archivable: true });
@@ -357,7 +357,7 @@ function renderHistory() {
   const count = countVisible(articles);
   const archivedCount = countArchived(articles);
   const archivedNote = archivedCount ? ` · 已归档 ${archivedCount} 篇` : "";
-  elements.heading.innerHTML = `<h1>${escapeHTML(formatDate(state.date))}</h1><p>${count} 篇论文 · 历史记录${archivedNote}</p>`;
+  elements.heading.innerHTML = `<p>${count} 篇论文 · 历史记录${archivedNote}</p>`;
   renderSourceFailures(state.day);
   renderGrouped(articles, null, { archivable: true });
 }
@@ -369,7 +369,7 @@ function renderSupplements() {
   const parts = [];
   if (late.length) parts.push(`迟到补录 ${late.length}`);
   if (pending.length) parts.push(`日期待核实 ${pending.length}`);
-  elements.heading.innerHTML = `<h1>补录</h1><p>${articles.length} 条记录${parts.length ? ` · ${parts.join(" · ")}` : ""}</p>`;
+  elements.heading.innerHTML = `<p>${articles.length} 条记录${parts.length ? ` · ${parts.join(" · ")}` : ""}</p>`;
   elements.status.hidden = true;
   elements.status.replaceChildren();
   renderGrouped(articles, "auto");
@@ -388,8 +388,7 @@ function archiveItemsVisible() {
 
 function renderArchive() {
   const items = archiveItemsVisible();
-  const dateLabel = state.archiveDate ? formatDate(state.archiveDate) : "全部";
-  elements.heading.innerHTML = `<h1>已归档</h1><p>${escapeHTML(dateLabel)} · ${items.length} 篇已读论文</p>`;
+  elements.heading.innerHTML = `<p>${items.length} 篇已读论文</p>`;
   elements.status.hidden = true;
   elements.status.replaceChildren();
 
