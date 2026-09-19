@@ -14,6 +14,7 @@ services:
       - ./data:/usr/share/nginx/html/data:ro
       - ./index.html:/usr/share/nginx/html/index.html:ro
       - ./journal.json:/usr/share/nginx/html/journal.json:ro
+      - ./favicon.ico:/usr/share/nginx/html/favicon.ico:ro
       - ./assets:/usr/share/nginx/html/assets:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
