@@ -1,6 +1,11 @@
-# 论文追踪
+<p align="center">
+  <img src="assets/favicon.svg" alt="论文追踪图标" width="72" height="72">
+</p>
 
-一个通过 Docker 自托管运行的个人论文追踪工具。
+<h1 align="center">论文追踪</h1>
+
+<p align="center">一个通过 Docker 自托管运行的个人论文追踪工具。</p>
+
 
 ## 主要功能
 
