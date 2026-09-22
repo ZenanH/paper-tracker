@@ -31,7 +31,7 @@ from common import (
     translation_engine,
     write_json,
 )
-from excluded_papers import save_excluded_records
+from excluded_papers import load_excluded, save_excluded_records
 from llm_settings import configured_llm_model
 from title_filter import TitleFilter
 
@@ -434,6 +434,25 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
                 article["published_date"] or "date_pending",
                 *({"late_additions"} if key in supplement_maps["late_additions"] else set()),
             }
+
+    # Clean against the complete retained ledger, including exclusions from
+    # older runs and exclusions discovered during this collection.
+    excluded_keys = set(load_excluded(DATA_DIR).get("entries", {}))
+    excluded_keys.update(article_key(record) for record in excluded_records)
+    if excluded_keys:
+        for key in excluded_keys:
+            for location in locations.get(key, set()):
+                if location in {"late_additions", "date_pending"}:
+                    supplement_maps[location].pop(key, None)
+                else:
+                    removed_from_days.setdefault(location, set()).add(key)
+
+        for day, additions in changed_days.items():
+            for key in excluded_keys:
+                additions.pop(key, None)
+        for bucket in ("late_additions", "date_pending"):
+            for key in excluded_keys:
+                supplement_maps[bucket].pop(key, None)
 
     for day in sorted(set(changed_days) | set(removed_from_days)):
         additions = changed_days.get(day, {})

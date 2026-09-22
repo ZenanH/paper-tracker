@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -370,6 +371,55 @@ class PipelineTests(unittest.TestCase):
             classify.assert_not_called()
             day = json.loads((root / "days" / "2026-09-18.json").read_text(encoding="utf-8"))
             self.assertEqual(len(day["articles"]), 1)
+
+    def test_historical_exclusions_are_removed_from_all_visible_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            days = self.prepare_collection_data(root)
+            old_article = self.article("2026-09-17")
+            old_article["doi"] = "10.1000/old-day"
+            old_article["id"] = old_article["doi"]
+            late_article = self.article("2026-09-16")
+            late_article["doi"] = "10.1000/old-late"
+            late_article["id"] = late_article["doi"]
+            pending_article = self.article()
+            pending_article["doi"] = "10.1000/old-pending"
+            pending_article["id"] = pending_article["doi"]
+            (days / "2026-09-17.json").write_text(
+                json.dumps({"date": "2026-09-17", "articles": [old_article], "journal_status": {}}),
+                encoding="utf-8",
+            )
+            (root / "supplements.json").write_text(
+                json.dumps(
+                    {
+                        "late_additions": [{**late_article, "supplement_type": "late_addition"}],
+                        "date_pending": [{**pending_article, "published_date": None, "supplement_type": "date_pending"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            entries = {}
+            for article in (old_article, late_article, pending_article):
+                entries[collect.article_key(article)] = {
+                    **article,
+                    "filter_category": "medicine",
+                    "filter_confidence": 0.99,
+                    "filter_engine": "openai-compatible:luna",
+                    "filter_rule_version": "2026-09-19.1",
+                    "excluded_at": "2026-09-18T01:00:00+08:00",
+                }
+            (root / "excluded-papers.json").write_text(
+                json.dumps({"entries": entries}), encoding="utf-8"
+            )
+
+            self.run_collection(root, [])
+
+            day = json.loads((days / "2026-09-17.json").read_text(encoding="utf-8"))
+            supplements = json.loads((root / "supplements.json").read_text(encoding="utf-8"))
+            self.assertEqual(day["articles"], [])
+            self.assertEqual(supplements["late_additions"], [])
+            self.assertEqual(supplements["date_pending"], [])
+            self.assertEqual(os.stat(days / "2026-09-17.json").st_mode & 0o777, 0o644)
 
 
 if __name__ == "__main__":
