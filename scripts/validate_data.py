@@ -106,9 +106,7 @@ def main() -> int:
         published = article.get("published_date")
         if published:
             record_date = date.fromisoformat(published)
-        else:
-            record_date = date.fromisoformat(article["first_discovered_at"][:10])
-        assert retention_begin <= record_date <= retention_end, article
+            assert retention_begin <= record_date <= retention_end, article
     print(f"Validated {len(files)} day files and {len(seen)} articles")
     return 0
 
