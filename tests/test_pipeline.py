@@ -419,7 +419,8 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(day["articles"], [])
             self.assertEqual(supplements["late_additions"], [])
             self.assertEqual(supplements["date_pending"], [])
-            self.assertEqual(os.stat(days / "2026-09-17.json").st_mode & 0o777, 0o644)
+            if os.name != "nt":
+                self.assertEqual(os.stat(days / "2026-09-17.json").st_mode & 0o777, 0o644)
 
 
 if __name__ == "__main__":
