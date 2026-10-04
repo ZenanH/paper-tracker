@@ -123,6 +123,19 @@ class ArchiveApiTests(unittest.TestCase):
         state = archive_api.apply_archive({"action": "unfavorite", "ids": [article["id"]]})
         self.assertNotIn(article["id"], state["favorites"])
 
+    def test_minimal_mutation_response_omits_full_archive(self):
+        state = {
+            "updated_at": "2026-09-18T01:00:00+08:00",
+            "items": {"article": {"id": "article"}},
+            "cleared_items": {},
+            "favorites": {"favorite": {"id": "favorite"}},
+        }
+        self.assertEqual(
+            archive_api.response_state(state, minimal=True),
+            {"updated_at": state["updated_at"]},
+        )
+        self.assertIs(archive_api.response_state(state), state)
+
     def test_favorite_is_independent_from_archive_transitions(self):
         article = {
             "id": "doi:10.1000/independent",

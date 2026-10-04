@@ -24,6 +24,8 @@ const state = {
   settingsGroups: {},
   archive: { items: {}, cleared_items: {}, favorites: {}, updated_at: null },
   archiveSelection: new Set(),
+  pendingArchives: new Set(),
+  pendingFavorites: new Set(),
   admin: null,
   adminWasRunning: false,
   filterJournalIds: new Set(),
@@ -646,9 +648,10 @@ function isFavorite(articleId) {
 function favoriteControl(article) {
   const articleId = article.id || "";
   const active = isFavorite(articleId);
+  const pending = state.pendingFavorites.has(articleId);
   const label = active ? "取消收藏" : "收藏这篇论文";
   return `<button class="favorite-button${active ? " is-active" : ""}" type="button"
-    data-favorite-article="${escapeHTML(articleId)}" aria-pressed="${active}" aria-label="${label}" title="${label}">
+    data-favorite-article="${escapeHTML(articleId)}" aria-pressed="${active}" aria-label="${label}" title="${label}"${pending ? " disabled" : ""}>
     <i data-lucide="star"></i>
   </button>`;
 }
@@ -656,7 +659,7 @@ function favoriteControl(article) {
 // 单篇「已读」勾选
 function articleArchiveControl(articleId) {
   return `<label class="article-check" title="勾选表示这篇已读过，归档后可在「已归档」中找回">
-    <input type="checkbox" data-archive-article="${escapeHTML(articleId)}" />
+    <input type="checkbox" data-archive-article="${escapeHTML(articleId)}"${state.pendingArchives.has(articleId) ? " disabled" : ""} />
     <span class="sr-only">标记为已读</span>
   </label>`;
 }
@@ -867,7 +870,6 @@ function renderCurrent() {
   else if (state.view === "archive") renderArchive();
   else if (state.view === "favorites") renderFavorites();
   else renderHistory();
-  renderIcons();
 }
 
 // 保留在历史窗口 [start, end] 内
@@ -964,13 +966,18 @@ function fatalError(message) {
 const ARCHIVE_TIMEOUT_MS = 20000;
 const ARCHIVE_ATTEMPTS = 2;
 
-async function postArchiveOnce(payload, body) {
+// Archive mutations update the local view before the round trip completes.
+// Prefer: return=minimal keeps the acknowledgement small on remote installs.
+async function postArchiveOnce(payload, body, options = {}) {
   const controller = typeof AbortController === "function" ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), ARCHIVE_TIMEOUT_MS) : null;
   try {
     const response = await fetch(ARCHIVE_API, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.minimal ? { Prefer: "return=minimal" } : {}),
+      },
       cache: "no-store",
       body,
       ...(controller ? { signal: controller.signal } : {}),
@@ -989,12 +996,12 @@ async function postArchiveOnce(payload, body) {
   }
 }
 
-async function postArchive(payload) {
+async function postArchive(payload, options = {}) {
   const body = JSON.stringify(payload);
   let lastError = null;
   for (let attempt = 1; attempt <= ARCHIVE_ATTEMPTS; attempt += 1) {
     try {
-      return await postArchiveOnce(payload, body);
+      return await postArchiveOnce(payload, body, options);
     } catch (error) {
       if (error && error.fatal) throw error;
       lastError = error;
@@ -1064,29 +1071,69 @@ async function loadArchive() {
   updateSettingsArchiveUI();
 }
 
+function archiveStateSnapshot(ids) {
+  return ids.map((id) => ({
+    id,
+    item: state.archive.items[id] ? { ...state.archive.items[id] } : null,
+    cleared: state.archive.cleared_items[id] ? { ...state.archive.cleared_items[id] } : null,
+    favorite: state.archive.favorites[id] ? { ...state.archive.favorites[id] } : null,
+  }));
+}
+
+function restoreArchiveState(snapshot) {
+  snapshot.forEach(({ id, item, cleared }) => {
+    delete state.archive.items[id];
+    delete state.archive.cleared_items[id];
+    if (item) state.archive.items[id] = item;
+    if (cleared) state.archive.cleared_items[id] = cleared;
+  });
+}
+
+function optimisticallyArchive(articles) {
+  const ids = articles.map((article) => article.id);
+  const snapshot = archiveStateSnapshot(ids);
+  const archivedAt = new Date().toISOString();
+  articles.forEach((article) => {
+    const id = article.id;
+    const existing = state.archive.items[id] || state.archive.cleared_items[id] || {};
+    state.archive.items[id] = {
+      ...existing,
+      ...articlePayload(article),
+      archived_at: existing.archived_at || archivedAt,
+    };
+    delete state.archive.cleared_items[id];
+    state.pendingArchives.add(id);
+  });
+  return snapshot;
+}
+
 async function archiveArticles(articles) {
-  const candidates = articles.filter((article) => article && article.id && !isArchived(article.id));
+  const candidates = [...new Map(articles
+    .filter((article) => article && article.id && !isArchived(article.id))
+    .map((article) => [article.id, article])).values()];
   if (!candidates.length) return true;
+  const snapshot = optimisticallyArchive(candidates);
+  updateArchiveCount();
+  updateSupplementCount();
+  updateSettingsArchiveUI();
+  renderCurrent();
   try {
-    const data = await postArchive({
+    await postArchive({
       action: "add",
-      items: candidates.map((article) => ({
-        id: article.id,
-        journal_id: article.journal_id,
-        date: article.archived_date || article.published_date || article.date || state.date || state.dailyDay?.date || state.manifest?.default_date || null,
-        title_en: article.title_en || "",
-        title_zh: article.title_zh || "",
-        url: article.url || "",
-        doi: article.doi || "",
-        translation_status: article.translation_status || (article.title_zh ? "translated" : "pending"),
-      })),
-    });
-    state.archive = normalizeArchive(data);
+      items: candidates.map(articlePayload),
+    }, { minimal: true });
   } catch (error) {
+    restoreArchiveState(snapshot);
     if (window.console && console.error) console.error("[paper-tracker] archive failed", error);
+    candidates.forEach((article) => state.pendingArchives.delete(article.id));
+    updateArchiveCount();
+    updateSupplementCount();
+    updateSettingsArchiveUI();
+    renderCurrent();
     showError(`归档失败：${error.message}`, () => archiveArticles(articles));
     return false;
   }
+  candidates.forEach((article) => state.pendingArchives.delete(article.id));
   updateArchiveCount();
   updateSupplementCount();
   updateSettingsArchiveUI();
@@ -1110,16 +1157,36 @@ function articlePayload(article) {
 async function toggleFavorite(article) {
   if (!article?.id) return false;
   const active = isFavorite(article.id);
+  const snapshot = archiveStateSnapshot([article.id]);
+  state.pendingFavorites.add(article.id);
+  if (active) {
+    delete state.archive.favorites[article.id];
+  } else {
+    const existing = state.archive.favorites[article.id] || {};
+    state.archive.favorites[article.id] = {
+      ...existing,
+      ...articlePayload(article),
+      favorited_at: existing.favorited_at || new Date().toISOString(),
+    };
+  }
+  updateFavoriteCount();
+  renderCurrent();
   try {
     const payload = active
       ? { action: "unfavorite", ids: [article.id] }
       : { action: "favorite", items: [articlePayload(article)] };
-    state.archive = normalizeArchive(await postArchive(payload));
+    await postArchive(payload, { minimal: true });
   } catch (error) {
+    delete state.archive.favorites[article.id];
+    if (snapshot[0].favorite) state.archive.favorites[article.id] = snapshot[0].favorite;
     if (window.console && console.error) console.error("[paper-tracker] favorite failed", error);
+    state.pendingFavorites.delete(article.id);
+    updateFavoriteCount();
+    renderCurrent();
     showError(`${active ? "取消收藏" : "收藏"}失败：${error.message}`, () => toggleFavorite(article));
     return false;
   }
+  state.pendingFavorites.delete(article.id);
   updateFavoriteCount();
   renderCurrent();
   return true;
