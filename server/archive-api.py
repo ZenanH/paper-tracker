@@ -4,6 +4,7 @@
 接口：
   GET  /api/archive   → {"updated_at":..., "items":{...}, "cleared_items":{...}, "favorites":{...}}
   POST /api/archive   → add/remove/clear/restore_cleared/favorite/unfavorite/remove_all
+                         （Prefer: return=minimal 时只返回更新时间）
   GET  /api/healthz   → 健康检查
 
 存储：ARCHIVE_FILE（默认 /archive/archive.json），原子写入，权限 0644。
@@ -113,6 +114,19 @@ def write_state(state: dict) -> None:
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+
+
+def response_state(state: dict, minimal: bool = False) -> dict:
+    """Return either the legacy full state or a small mutation acknowledgement.
+
+    The browser already applies archive/favorite mutations optimistically.  A
+    minimal response keeps a POST from sending the entire (potentially large)
+    archive back through nginx/Tailscale while retaining the full response for
+    older clients that do not opt in.
+    """
+    if minimal:
+        return {"updated_at": state.get("updated_at")}
+    return state
 
 
 def clean_item(raw: dict) -> dict | None:
@@ -228,12 +242,14 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # noqa: A003
         pass
 
-    def _send(self, status: int, payload: dict) -> None:
+    def _send(self, status: int, payload: dict, headers: dict | None = None) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
@@ -282,7 +298,13 @@ class Handler(BaseHTTPRequestHandler):
         except (json.JSONDecodeError, UnicodeDecodeError):
             self._send(400, {"error": "JSON 解析失败"})
             return
-        self._send(200, state)
+        prefer = (self.headers.get("Prefer") or "").lower()
+        minimal = "return=minimal" in prefer
+        self._send(
+            200,
+            response_state(state, minimal=minimal),
+            {"Preference-Applied": "return=minimal"} if minimal else None,
+        )
 
 
 def main() -> int:
