@@ -24,6 +24,7 @@ const state = {
   settingsGroups: {},
   archive: { items: {}, cleared_items: {}, favorites: {}, updated_at: null },
   archiveSelection: new Set(),
+  archiveOperation: null,
   pendingArchives: new Set(),
   pendingFavorites: new Set(),
   admin: null,
@@ -53,6 +54,7 @@ const elements = {
   archiveNone: document.querySelector("#archive-none"),
   archiveClear: document.querySelector("#archive-clear"),
   archiveRestore: document.querySelector("#archive-restore"),
+  archiveProgress: document.querySelector("#archive-progress"),
   dailyToolbar: document.querySelector("#daily-toolbar"),
   dailyDate: document.querySelector("#daily-date"),
   historyToolbar: document.querySelector("#history-toolbar"),
@@ -231,7 +233,7 @@ function normalizeArchive(data) {
 function updateSettingsArchiveUI() {
   const count = Object.keys(state.archive.cleared_items).length;
   elements.settingsArchiveSummary.textContent = count ? `${count} 篇已清空` : "没有已清空的归档";
-  elements.settingsRestoreArchive.disabled = count === 0;
+  elements.settingsRestoreArchive.disabled = count === 0 || Boolean(state.archiveOperation);
   elements.settingsRestoreArchive.textContent = count ? `恢复归档 (${count})` : "恢复归档";
 }
 
@@ -861,8 +863,31 @@ function renderFavorites() {
 function updateArchiveSelectionUI() {
   const count = state.archiveSelection.size;
   elements.archiveSelection.textContent = count ? `已选 ${count} 篇` : "未选择";
-  elements.archiveRestore.disabled = count === 0;
+  elements.archiveRestore.disabled = count === 0 || Boolean(state.archiveOperation);
   elements.archiveRestore.textContent = count ? `恢复所选 (${count})` : "恢复所选";
+}
+
+function renderArchiveProgress() {
+  const operation = state.archiveOperation;
+  const busy = Boolean(operation);
+  const count = operation?.count || 0;
+  elements.list.setAttribute("aria-busy", String(busy));
+  if (elements.archiveProgress) {
+    elements.archiveProgress.hidden = !busy;
+    if (busy) {
+      elements.archiveProgress.innerHTML = `<span class="operation-spinner" aria-hidden="true"></span><strong>正在清空归档</strong><span>正在处理 ${count} 篇论文，请勿关闭或刷新页面。</span>`;
+    } else {
+      elements.archiveProgress.replaceChildren();
+    }
+  }
+  elements.archiveSelectAll.disabled = busy;
+  elements.archiveNone.disabled = busy;
+  elements.archiveClear.disabled = busy || archiveItemsVisible().length === 0;
+  elements.archivePrevious.disabled = busy || !state.manifest || state.archiveDate <= state.manifest.retention.start;
+  elements.archiveNext.disabled = busy || !state.manifest || state.archiveDate >= state.manifest.retention.end;
+  elements.archiveYesterday.disabled = busy;
+  elements.archiveDatePicker.disabled = busy;
+  updateArchiveSelectionUI();
 }
 
 function renderCurrent() {
@@ -870,6 +895,7 @@ function renderCurrent() {
   else if (state.view === "archive") renderArchive();
   else if (state.view === "favorites") renderFavorites();
   else renderHistory();
+  renderArchiveProgress();
 }
 
 // 保留在历史窗口 [start, end] 内
@@ -1046,6 +1072,19 @@ function updateFavoriteCount() {
   elements.favoriteCount.textContent = count;
 }
 
+function refreshFavoriteControls(articleId) {
+  const active = isFavorite(articleId);
+  const label = active ? "取消收藏" : "收藏这篇论文";
+  elements.list.querySelectorAll("[data-favorite-article]").forEach((button) => {
+    if (button.dataset.favoriteArticle !== articleId) return;
+    button.classList.toggle("is-active", active);
+    button.disabled = state.pendingFavorites.has(articleId);
+    button.setAttribute("aria-pressed", String(active));
+    button.setAttribute("aria-label", label);
+    button.title = label;
+  });
+}
+
 function updateSupplementCount() {
   const articles = [
     ...(state.supplements?.late_additions || []),
@@ -1087,6 +1126,18 @@ function restoreArchiveState(snapshot) {
     if (item) state.archive.items[id] = item;
     if (cleared) state.archive.cleared_items[id] = cleared;
   });
+}
+
+function optimisticallyClearArchive(ids) {
+  const snapshot = archiveStateSnapshot(ids);
+  const clearedAt = new Date().toISOString();
+  ids.forEach((id) => {
+    const item = state.archive.items[id];
+    if (!item) return;
+    delete state.archive.items[id];
+    state.archive.cleared_items[id] = { ...item, cleared_at: item.cleared_at || clearedAt };
+  });
+  return snapshot;
 }
 
 function optimisticallyArchive(articles) {
@@ -1170,7 +1221,8 @@ async function toggleFavorite(article) {
     };
   }
   updateFavoriteCount();
-  renderCurrent();
+  if (state.view === "favorites") renderCurrent();
+  else refreshFavoriteControls(article.id);
   try {
     const payload = active
       ? { action: "unfavorite", ids: [article.id] }
@@ -1182,13 +1234,15 @@ async function toggleFavorite(article) {
     if (window.console && console.error) console.error("[paper-tracker] favorite failed", error);
     state.pendingFavorites.delete(article.id);
     updateFavoriteCount();
-    renderCurrent();
+    if (state.view === "favorites") renderCurrent();
+    else refreshFavoriteControls(article.id);
     showError(`${active ? "取消收藏" : "收藏"}失败：${error.message}`, () => toggleFavorite(article));
     return false;
   }
   state.pendingFavorites.delete(article.id);
   updateFavoriteCount();
-  renderCurrent();
+  if (state.view === "favorites") renderCurrent();
+  else refreshFavoriteControls(article.id);
   return true;
 }
 
@@ -1213,14 +1267,26 @@ async function restoreArticles(ids) {
 
 async function clearArchive(ids) {
   if (!ids.length) return true;
-  const snapshot = [...ids];
+  if (state.archiveOperation) return false;
+  const uniqueIds = [...new Set(ids)];
+  const snapshot = optimisticallyClearArchive(uniqueIds);
+  state.archiveSelection.clear();
+  state.archiveOperation = { type: "clear", count: uniqueIds.length };
+  updateArchiveCount();
+  updateSettingsArchiveUI();
+  renderCurrent();
   try {
-    state.archive = normalizeArchive(await postArchive({ action: "clear", ids }));
+    await postArchive({ action: "clear", ids: uniqueIds }, { minimal: true });
   } catch (error) {
-    showError(`清空归档失败：${error.message}`, () => clearArchive(snapshot));
+    restoreArchiveState(snapshot);
+    state.archiveOperation = null;
+    updateArchiveCount();
+    updateSettingsArchiveUI();
+    renderCurrent();
+    showError(`清空归档失败：${error.message}`, () => clearArchive(uniqueIds));
     return false;
   }
-  state.archiveSelection.clear();
+  state.archiveOperation = null;
   updateArchiveCount();
   updateSettingsArchiveUI();
   renderCurrent();
@@ -1360,9 +1426,9 @@ function bindEvents() {
     renderArchive();
   });
   elements.archiveClear.addEventListener("click", () => {
-    const ids = Object.keys(state.archive.items);
+    const ids = archiveItemsVisible().map((item) => item.id);
     if (!ids.length) return;
-    if (!window.confirm(`确定清空全部 ${ids.length} 篇归档记录？这些论文将从归档页隐藏，但仍保持已读，可在设置中恢复归档。`)) return;
+    if (!window.confirm(`确定清空当前可见的 ${ids.length} 篇归档记录？这些论文将从归档页隐藏，但仍保持已读，可在设置中恢复归档。`)) return;
     clearArchive(ids);
   });
   elements.archiveRestore.addEventListener("click", () => {
@@ -1456,5 +1522,11 @@ async function start() {
   }
   renderIcons();
 }
+
+window.addEventListener("beforeunload", (event) => {
+  if (!state.archiveOperation) return;
+  event.preventDefault();
+  event.returnValue = "归档仍在处理中，请勿关闭或刷新页面。";
+});
 
 window.addEventListener("DOMContentLoaded", start);
