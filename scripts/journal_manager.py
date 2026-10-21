@@ -56,6 +56,7 @@ OPERATION_LOCK = threading.Lock()
 JOB_DEFAULTS: dict[str, Any] = {
     "status": "idle",
     "kind": None,
+    "stage": None,
     "message": "",
     "started_at": None,
     "finished_at": None,
@@ -188,10 +189,15 @@ def mark_reconciled(reference: date | None = None) -> None:
 
 
 def daily_pipeline() -> None:
+    set_job(stage="collect")
     run_command(["python3", "scripts/collect.py", "--mode", "daily"])
+    if llm_is_configured():
+        set_job(stage="translate")
     run_translation(2000)
     if metrics_due():
+        set_job(stage="metrics")
         run_command(["python3", "scripts/update_metrics.py"])
+    set_job(stage="validate")
     run_command(["python3", "scripts/validate_data.py"])
     mark_reconciled()
 
@@ -272,9 +278,9 @@ def execute_job(kind: str, callback: Callable[[], Any]) -> None:
     try:
         result = callback()
     except Exception as exc:
-        set_job(status="failed", message=str(exc), finished_at=iso_now())
+        set_job(status="failed", stage=None, message=str(exc), finished_at=iso_now())
         return
-    set_job(status="success", message="Completed", result=result, finished_at=iso_now())
+    set_job(status="success", stage=None, message="Completed", result=result, finished_at=iso_now())
 
 
 def start_job(kind: str, callback: Callable[[], Any]) -> None:
@@ -284,6 +290,7 @@ def start_job(kind: str, callback: Callable[[], Any]) -> None:
         JOB.update(
             status="running",
             kind=kind,
+            stage=None,
             message="任务正在运行",
             started_at=iso_now(),
             finished_at=None,

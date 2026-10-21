@@ -14,7 +14,8 @@
 ## 文件、持久化与凭据
 
 - `scripts/run_local.py` 启动静态/数据网关、`archive-api` 和 `journal-manager`；网页与 API 同源，服务默认只监听 `127.0.0.1`。静态网关只公开 `manifest.json`、`journals.json` 和日期论文文件；过滤审计、运行配置和凭据不得作为静态文件开放。
-- `data/live/` 保存日期论文、期刊元数据、运行配置、翻译/分类缓存、过滤审计和任务状态；`archive/archive.json` 保存 `items`、`cleared_items`、`favorites` 及导入后数据集标识；`secrets/` 保存受保护凭据。全部独立于代码仓库，不清理或覆盖用户运行数据。
+- `data/live/` 保存日期论文、期刊元数据、运行配置、翻译/分类缓存、过滤审计和任务状态；`archive/archive.json` 保存 `items`、`cleared_items`、`favorites` 及导入后数据集标识；`secrets/` 保存受保护凭据。全部独立于代码仓库；仅在用户明确授权重置时清理运行数据。
+- 2026-10-21 用户已授权清空此前的 `data/`、`archive/` 与 `.runtime/` 数据和备份，作为新版本起点；本次保留 `secrets/`，后续不得自动重复清空。
 - 本机预览地址为 `http://127.0.0.1:18898/`。本地服务通过随机回环端口互相通信，只有网页入口端口固定；不要把内部服务绑定到外网地址。
 - 模型凭据在 `secrets/llm-config.json`；GitHub OAuth 凭据在 `secrets/github-gist.json`。目录权限 0700，文件 0600；原子写入，管理 API 永不回传密钥或令牌。日志和前端产物不得包含凭据。
 - GitHub OAuth Client ID 是公开标识，可配置于设置界面或 `PAPER_TRACKER_GITHUB_CLIENT_ID`；无需 Client Secret。不要要求用户将访问令牌发到对话中。
@@ -27,7 +28,7 @@
 - 查询和普通论文数据保留截至当天的滚动三个自然月，按日历月运算，不能固定成 90 天。
 - 每轮核对完整发表窗口，并从每刊上次成功水位回查索引变化，留一天重叠；索引查询不限制发表日期，以覆盖缺少日期的新收录记录。首次/回填覆盖完整窗口。
 - 手动更新、启动补跑、定时任务、期刊增删、指标维护、Gist 任务及配置修改互斥。失败不清空已有论文，不推进失败期刊成功水位。
-- 启动恢复 `data/task-status.json`，将中断的运行任务标为失败。补跑和页面落后判断比较最近一次 01:00/13:00 时段与 `collection_checked_at`，不能只比较昨日日期。定向新增期刊或指标更新不得冒充全刊采集。
+- 启动恢复 `data/live/task-status.json`，将中断的运行任务标为失败。补跑和页面落后判断比较最近一次 01:00/13:00 时段与 `collection_checked_at`，不能只比较昨日日期。定向新增期刊或指标更新不得冒充全刊采集。
 - 按首次在线发表日期归档；完整日期或可解释时区时间戳优先于正式卷期。只有日期则保留来源日期，不虚构时分秒。在线日期只有年月时不能被未来正式印刷日期替代。
 - 无完整可用日期（仅年月、仅年份、缺失或无效）时，`published_date` 使用**首次处理时北京时间所在月份的 1 日**；保留 `raw_publication_date`、`date_precision`、`date_source`，写入 `date_inferred=true`、`date_inference=current-month-start`。
 - 推定只赋值一次；跨月重复采集不能把旧论文移到新月，来源暂缺也不能抹去已保存日期。之后获得完整日期时，按同一 ID 原子移到正确日期并清除推定标记；修正到窗口外则移出普通数据。
@@ -92,6 +93,7 @@
 - 收藏和阅读状态乐观更新，`Prefer: return=minimal`；请求期间禁重复修改，过期读取不覆盖后发操作，切换页面仍可浏览。导入中禁止本页保存；导入后数据集标识阻止旧浏览器重新写入旧数据。
 - 星标固定尺寸，aria-label、aria-pressed、键盘焦点完整，切换不引起标题跳动。标题链接只允许 HTTP(S)，安全文本渲染。
 - 全局任务提示放顶部，按 Updating papers/Updating IF/Adding journal/Gist import 等说明实际任务；失败/中断明确，不在底部显示笼统 Updating。
+- 顶部 Refresh 必须发送 `POST /api/admin/run`、`{"mode":"daily"}` 启动完整更新，按现有设置采集与过滤、翻译并校验。点击立即反馈，任务运行中禁止重复启动但允许浏览；显示真实阶段，成功/部分失败/任务失败分别反馈，结束后清日期缓存并重读论文和阅读状态。未配置模型时继续采集并跳过模型调用。
 - Find/Search 统一颜色、尺寸和样式。搜索框鼠标/触摸点击和输入不出现高亮外轮廓，Tab 保留可见焦点。
 - system/light/dark，首屏不闪主题；遵循减少动画、减少透明度和强制颜色。长标题、长刊名、窄屏、空/错误/加载状态不能横向溢出、遮挡或跳动。
 - 沿用 emil-design-eng 和 liquid-glass skill；玻璃仅导航/批量操作栏，12px 静态模糊，正文实色，静态环境渐变、中性透明材质和边缘高光。Chromium 渐进增强 SVG 边缘折射，其他浏览器 CSS 回退；贴图分片且只在尺寸改变时重建，不监听滚动。无动画键盘操作，弹窗内部滚动，文字可读性优先。
@@ -119,4 +121,4 @@
 - 变更后更新 index.html 中静态资源内容 hash。不得新增容器镜像或编排配置。Vercel Free 迁移单独实施和验证；发布或推送代码须在用户授权范围内。
 - 手动完整更新使用 UI，或 `POST /api/admin/run`，JSON `{"mode":"daily"}`；显式回填可用 mode=backfill、可选非空有效 journal_ids。指标更新 `POST /api/admin/metrics/update`。维护脚本为 collect.py、translate.py、sync_cas.py、update_metrics.py、validate_data.py。
 - 需要维护脚本写入运行数据时先保证常驻任务空闲，避免绕开互斥。真实运行检查报告时间、刊数及失败源，区分手动/启动补跑成功与实际定时触发成功；不将模拟 GitHub/模型测试表述为用户已授权或真实导出成功。
-- 本机真实数据与验收快照属于 `.runtime/` 及 `data/`、`archive/`、`secrets/`，不向代码仓库提交，也不写入说明中的敏感凭据。清理代码时保留这些用户数据；完整恢复前保留当前 data/archive；含密钥备份先加密。
+- 本机真实数据与验收快照属于 `.runtime/` 及 `data/`、`archive/`、`secrets/`，不向代码仓库提交，也不写入说明中的敏感凭据。清理代码时默认保留这些用户数据，用户明确授权的重置除外；完整恢复前保留当前 data/archive；含密钥备份先加密。

@@ -41,15 +41,27 @@ async function stub(page, model, {failedDate = false} = {}) {
     if (path.endsWith('/supplements.json')) model.legacySupplementReads++;
     if (path.endsWith('/manifest.json')) return route.fulfill({json: {
       default_date: dates[2], retention: {start: '2026-07-19', end: dates[2]}, available_dates: Object.keys(days).sort(),
-      updated_at: '2026-10-20T01:00:00+08:00', collection_summary: {ok: 2, failed: 0}}});
+      updated_at: '2026-10-20T01:00:00+08:00', collection_summary: {ok: 2 - (model.failedJournals || 0), failed: model.failedJournals || 0}}});
     if (path.endsWith('/journals.json')) return route.fulfill({json: {journals}});
     const date = path.match(/days\/(\d{4}-\d{2}-\d{2})\.json/)?.[1];
     if (date && failedDate && date === dates[2]) return route.fulfill({status: 503, json: {error: 'Offline day'}});
-    if (date && days[date]) return route.fulfill({json: days[date]});
+    if (date && days[date]) {
+      model.dateReads = (model.dateReads || 0) + 1;
+      return route.fulfill({json: {articles: [...days[date].articles, ...(model.newPaper && date === dates[2] ? [model.newPaper] : [])]}});
+    }
     return route.fulfill({status: 404, json: {error: 'Unknown test data'}});
   });
-  await page.route('**/api/admin/**', route => route.fulfill({json: {
-    journals, llm: {}, job: {status: 'idle'}, filter_journal_ids: [], filter_prompt: ''}}));
+  await page.route('**/api/admin/**', async route => {
+    if (new URL(route.request().url()).pathname === '/api/admin/run' && route.request().method() === 'POST') {
+      (model.refreshRequests ||= []).push(route.request().postDataJSON());
+      if (model.holdStart) await new Promise(resolve => {model.releaseStart = resolve;});
+      if (model.rejectRefresh) return route.fulfill({status: 503, json: {error: 'Refresh service unavailable'}});
+      model.job = {status: 'running', kind: 'manual', stage: 'collect'};
+      return route.fulfill({status: 202, json: {journals, job: model.job, llm: {}, filter_journal_ids: [], filter_prompt: ''}});
+    }
+    if (model.adminOffline) return route.fulfill({status: 503, json: {error: 'Management unavailable'}});
+    return route.fulfill({json: {journals, llm: {}, job: model.job || {status: 'idle'}, filter_journal_ids: [], filter_prompt: ''}});
+  });
   await page.route('**/api/archive', async route => {
     if (route.request().method() === 'GET') {
       if (model.holdRecovery && model.posts.length >= 2) await new Promise(resolve => {model.releaseRecovery = resolve;});
@@ -116,7 +128,7 @@ async function stub(page, model, {failedDate = false} = {}) {
     assert(await page.locator('#save-status').isVisible());
     assert.match(await page.locator('#save-count').innerText(), new RegExp(`0 / ${total} papers confirmed`));
     assert(await page.locator('[data-archive-journal="beta"]').isDisabled());
-    assert.equal(await page.locator('.saving-spinner').evaluate(node => getComputedStyle(node).animationName), 'saving-spin');
+    assert.equal(await page.locator('#save-status .saving-spinner').evaluate(node => getComputedStyle(node).animationName), 'saving-spin');
     await page.waitForFunction(() => document.querySelector('#save-detail').textContent.includes('Slow connection'), null, {timeout: 12000});
     assert.equal(await page.locator('#save-progress').getAttribute('aria-valuenow'), '0');
     for (const width of [320, 390, 768, 1440]) {
@@ -131,7 +143,7 @@ async function stub(page, model, {failedDate = false} = {}) {
       assert(!layout.overflow); assert(layout.top >= layout.progressBottom);
     }
     await page.emulateMedia({reducedMotion: 'reduce'});
-    assert.equal(await page.locator('.saving-spinner').evaluate(node => getComputedStyle(node).animationName), 'none');
+    assert.equal(await page.locator('#save-status .saving-spinner').evaluate(node => getComputedStyle(node).animationName), 'none');
     await page.emulateMedia({reducedMotion: 'no-preference'});
     await page.locator('[data-view="favorites"]').click();
     assert(await page.locator('#save-status').isVisible());
@@ -219,6 +231,69 @@ async function stub(page, model, {failedDate = false} = {}) {
     const failed = await browser.newPage(); await stub(failed, {saved: fixture(), posts: []}, {failedDate: true});
     await failed.goto(baseURL); await ready(failed);
     assert(await failed.locator('[data-archive-journal]').first().isDisabled());
+
+    const refreshPage = await browser.newPage({viewport: {width: 390, height: 844}, reducedMotion: 'reduce'});
+    const refreshErrors = []; refreshPage.on('pageerror', error => refreshErrors.push(error.message));
+    const refreshModel = {saved: fixture(), posts: [], holdStart: true};
+    await stub(refreshPage, refreshModel);
+    await refreshPage.goto(baseURL); await ready(refreshPage);
+    const refresh = refreshPage.getByRole('button', {name: 'Refresh papers', exact: true});
+    await refresh.waitFor();
+    await refreshPage.waitForFunction(() => !document.querySelector('#run-now').disabled);
+    await refresh.focus(); await refresh.press('Enter');
+    await waitUntil(() => Boolean(refreshModel.releaseStart));
+    assert.equal(await refresh.locator('#refresh-label').innerText(), 'Starting…');
+    assert(await refresh.isDisabled());
+    await refresh.evaluate(button => button.click());
+    assert.deepEqual(refreshModel.refreshRequests, [{mode: 'daily'}]);
+    refreshModel.holdStart = false; refreshModel.releaseStart();
+    await refreshPage.waitForFunction(() => document.querySelector('#refresh-label').textContent === 'Refreshing…');
+    assert.equal(await refresh.getAttribute('aria-busy'), 'true');
+    assert(await refreshPage.locator('#refresh-spinner').isVisible());
+    assert.match(await refreshPage.locator('#update-status').innerText(), /Collecting and filtering papers/);
+    refreshModel.job.stage = 'translate';
+    await refreshPage.waitForFunction(() => document.querySelector('#update-status').textContent.includes('Translating titles'));
+    for (const theme of ['light', 'dark']) for (const width of [320, 390, 768, 1440]) {
+      await refreshPage.setViewportSize({width, height: 844});
+      await refreshPage.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+      assert.equal(await refreshPage.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      assert(await refresh.isVisible());
+    }
+    await refreshPage.locator('[data-view="favorites"]').click();
+    assert.equal(await refreshPage.locator('.article-item').count(), 1);
+    await refreshPage.locator('[data-view="papers"]').click();
+    const readsBefore = refreshModel.dateReads;
+    refreshModel.newPaper = {id: 'alpha:2:-fresh', journal_id: 'alpha', published_date: dates[2],
+      title_en: 'Fresh mechanics result', title_zh: '刚采集的新论文', translation_status: 'translated', url: 'https://example.com/fresh'};
+    refreshModel.job = {status: 'success', kind: 'manual', finished_at: '2026-10-21T10:00:00Z'};
+    await refreshPage.waitForFunction(() => document.querySelector('#notice').textContent === 'Papers refreshed');
+    await ready(refreshPage);
+    assert(refreshModel.dateReads > readsBefore);
+    assert.equal(await refresh.getAttribute('aria-busy'), 'false');
+    assert.equal(await refresh.locator('#refresh-label').innerText(), 'Refresh');
+    assert(!(await refresh.isDisabled()));
+    assert.equal(await refreshPage.getByText('刚采集的新论文', {exact: true}).count(), 1);
+    assert.equal(Object.keys(refreshModel.saved.favorites).length, 1);
+    await refresh.click();
+    await waitUntil(() => refreshModel.refreshRequests.length === 2);
+    refreshModel.job = {status: 'failed', kind: 'manual', finished_at: '2026-10-21T10:01:00Z'};
+    await refreshPage.waitForFunction(() => document.querySelector('#notice').textContent.startsWith('Paper refresh failed'));
+    assert(!(await refresh.isDisabled()));
+    assert.equal(await refreshPage.getByText('刚采集的新论文', {exact: true}).count(), 1);
+    await refresh.click();
+    await waitUntil(() => refreshModel.refreshRequests.length === 3);
+    refreshModel.failedJournals = 1;
+    refreshModel.job = {status: 'success', kind: 'manual', finished_at: '2026-10-21T10:02:00Z'};
+    await refreshPage.waitForFunction(() => document.querySelector('#notice').textContent.includes('1 failed journal'));
+    assert(!(await refresh.isDisabled()));
+    refreshModel.rejectRefresh = true;
+    await refresh.click();
+    await refreshPage.waitForFunction(() => document.querySelector('#notice').textContent === 'Refresh service unavailable');
+    assert(!(await refresh.isDisabled()));
+    assert.equal(await refresh.getAttribute('aria-busy'), 'false');
+    assert.equal(refreshModel.refreshRequests.length, 4);
+    assert.deepEqual(refreshErrors, []);
+    console.log('Refresh: keyboard start, no duplicate request, real stages, browse while running, cache reload with new translation, failures and retry; both themes and reduced motion.');
     assert.deepEqual(errors, []); console.log('Journal action browser checks passed.');
   } finally {await browser.close();}
 })().catch(error => {console.error(error); process.exitCode = 1;});

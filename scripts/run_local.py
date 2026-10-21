@@ -121,12 +121,19 @@ class LocalHandler(BaseHTTPRequestHandler):
             return
         self._proxy()
 
+    do_DELETE = do_POST
+
     def _proxy(self) -> None:
         path = urllib.parse.urlsplit(self.path).path
         base = api_target(path, self.archive_port, self.manager_port)
         if base is None:
             self.send_error(404)
             return
+        if self.command in {"POST", "DELETE"}:
+            origin = self.headers.get("Origin")
+            if self.headers.get("Sec-Fetch-Site") == "cross-site" or (origin and urllib.parse.urlsplit(origin).netloc != self.headers.get("Host")):
+                self._send(403, b'{"error":"Requests must come from this Paper Tracker site."}', "application/json", "no-store")
+                return
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:

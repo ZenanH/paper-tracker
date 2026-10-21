@@ -10,7 +10,8 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
-from urllib.request import urlopen
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -41,12 +42,17 @@ class LocalServerTests(unittest.TestCase):
     def test_gateway_proxies_management_requests_same_origin(self):
         class BackendHandler(BaseHTTPRequestHandler):
             def do_GET(self):
-                body = json.dumps({"path": self.path, "origin": self.headers.get("Origin")}).encode()
-                self.send_response(200)
+                length = int(self.headers.get('Content-Length', 0))
+                payload = json.loads(self.rfile.read(length)) if length else None
+                body = json.dumps({"path": self.path, "origin": self.headers.get("Origin"), "payload": payload, "method": self.command}).encode()
+                self.send_response(202 if self.command == 'POST' else 200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+
+            do_POST = do_GET
+            do_DELETE = do_GET
 
             def log_message(self, *_args):
                 pass
@@ -63,6 +69,20 @@ class LocalServerTests(unittest.TestCase):
                 payload = json.load(response)
             self.assertEqual(payload["path"], "/api/admin/healthz?probe=1")
             self.assertEqual(payload["origin"], f"http://127.0.0.1:{backend.server_address[1]}")
+            origin = f"http://127.0.0.1:{frontend.server_address[1]}"
+            request = Request(origin + '/api/admin/run', data=b'{"mode":"daily"}', headers={"Content-Type": "application/json", "Origin": origin}, method='POST')
+            with urlopen(request) as response:
+                self.assertEqual(response.status, 202)
+                payload = json.load(response)
+            self.assertEqual(payload['payload'], {'mode': 'daily'})
+            self.assertEqual(payload['path'], '/api/admin/run')
+            foreign = Request(origin + '/api/admin/run', data=b'{"mode":"daily"}', headers={"Content-Type": "application/json", "Origin": 'https://another.example'}, method='POST')
+            with self.assertRaises(HTTPError) as error:
+                urlopen(foreign)
+            self.assertEqual(error.exception.code, 403)
+            error.exception.close()
+            with urlopen(Request(origin + '/api/admin/journals/example', method='DELETE')) as response:
+                self.assertEqual(json.load(response)['method'], 'DELETE')
         finally:
             for server in (frontend, backend):
                 server.shutdown()

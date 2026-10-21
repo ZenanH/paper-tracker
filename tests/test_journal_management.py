@@ -11,9 +11,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import journal_config
 import journal_manager
+import sync_cas
 
 
 class JournalManagementTests(unittest.TestCase):
+    def test_clean_version_initializes_32_journals_and_empty_papers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory) / "live"
+            with patch.object(journal_config, "DATA_DIR", data_dir), patch.object(
+                journal_config, "CONFIG_PATH", data_dir / "journal-config.json"
+            ), patch.object(sync_cas, "DATA_DIR", data_dir):
+                self.assertEqual(sync_cas.main(), 0)
+                journal_config.ensure_runtime_data()
+                manifest = json.loads((data_dir / "manifest.json").read_text())
+                self.assertEqual(manifest["journal_count"], 32)
+                self.assertEqual(manifest["available_dates"], [])
+                self.assertEqual(list((data_dir / "days").iterdir()), [])
+                removed_id = json.loads((data_dir / "journals.json").read_text())["journals"][0]["id"]
+                journal_config.remove_journal(removed_id)
+                self.assertEqual(sync_cas.main(), 0)
+                journals = json.loads((data_dir / "journals.json").read_text())
+                self.assertEqual(len(journals["journals"]), 31)
+                self.assertNotIn(removed_id, {journal["id"] for journal in journals["journals"]})
+
     def test_filter_prompt_survives_journal_changes_and_validates_size(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(journal_config, "DATA_DIR", Path(directory)):
             journal_config.update_filter_config(["one"], {"one"}, "保留力学")
@@ -200,7 +220,7 @@ class JournalManagementTests(unittest.TestCase):
     def test_add_pipeline_runs_complete_targeted_workflow(self):
         with patch.object(journal_manager, "run_command") as run_command, patch.object(
             journal_manager, "llm_is_configured", return_value=True
-        ):
+        ), patch.object(journal_manager, "discover_journal_metric"):
             journal_manager.add_pipeline("nature")
 
         self.assertEqual(
@@ -230,12 +250,51 @@ class JournalManagementTests(unittest.TestCase):
             ],
         )
 
+    def test_manual_refresh_collects_filters_then_translates_and_validates(self):
+        with patch.object(journal_manager, "run_command") as command, patch.object(
+            journal_manager, "llm_is_configured", return_value=True
+        ), patch.object(journal_manager, "metrics_due", return_value=True), patch.object(
+            journal_manager, "set_job"
+        ) as stage, patch.object(journal_manager, "mark_reconciled") as reconciled:
+            journal_manager.daily_pipeline()
+        self.assertEqual([call.args[0] for call in command.call_args_list], [
+            ["python3", "scripts/collect.py", "--mode", "daily"],
+            ["python3", "scripts/translate.py", "--limit", "2000", "--batch-size", "8", "--workers", "2"],
+            ["python3", "scripts/update_metrics.py"],
+            ["python3", "scripts/validate_data.py"],
+        ])
+        self.assertEqual([call.kwargs["stage"] for call in stage.call_args_list], ["collect", "translate", "metrics", "validate"])
+        reconciled.assert_called_once_with()
+
+    def test_refresh_without_model_still_collects_and_validates(self):
+        with patch.object(journal_manager, "run_command") as command, patch.object(
+            journal_manager, "llm_is_configured", return_value=False
+        ), patch.object(journal_manager, "metrics_due", return_value=False), patch.object(
+            journal_manager, "set_job"
+        ) as stage, patch.object(journal_manager, "mark_reconciled"), patch.object(journal_manager, "append_log"):
+            journal_manager.daily_pipeline()
+        self.assertEqual([call.args[0] for call in command.call_args_list], [
+            ["python3", "scripts/collect.py", "--mode", "daily"],
+            ["python3", "scripts/validate_data.py"],
+        ])
+        self.assertEqual([call.kwargs["stage"] for call in stage.call_args_list], ["collect", "validate"])
+
+    def test_refresh_collection_failure_stops_pipeline_and_marks_job_failed(self):
+        with patch.object(journal_manager, "run_command", side_effect=RuntimeError("Collection failed")), patch.object(
+            journal_manager, "set_job"
+        ) as state, patch.object(journal_manager, "run_translation") as translate, patch.object(journal_manager, "mark_reconciled") as mark:
+            journal_manager.execute_job("manual", journal_manager.daily_pipeline)
+        translate.assert_not_called()
+        mark.assert_not_called()
+        self.assertEqual(state.call_args.kwargs["status"], "failed")
+        self.assertIsNone(state.call_args.kwargs["stage"])
+
     def test_add_pipeline_skips_translation_without_model(self):
         with patch.object(journal_manager, "run_command") as run_command, patch.object(
             journal_manager, "append_log"
         ) as append_log, patch.object(
             journal_manager, "llm_is_configured", return_value=False
-        ):
+        ), patch.object(journal_manager, "discover_journal_metric"):
             journal_manager.add_pipeline("nature")
 
         commands = [call.args[0] for call in run_command.call_args_list]

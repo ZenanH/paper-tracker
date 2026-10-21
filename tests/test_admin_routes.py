@@ -64,6 +64,23 @@ class AdminRoutesTests(unittest.TestCase):
         with patch.dict(journal_manager.JOB, {"status": "running"}):
             self.assertEqual(self.post("/api/admin/run", {"mode": "backfill"})[0], 400)
 
+    def test_refresh_runs_full_daily_pipeline_and_rejects_duplicate_jobs(self):
+        with patch.object(journal_manager, "journal_payload", return_value={"job": {"status": "running"}}), patch.object(
+            journal_manager, "start_job"
+        ) as start, patch.object(journal_manager, "daily_pipeline") as daily:
+            status, payload = self.post("/api/admin/run", {"mode": "daily"})
+            self.assertEqual(status, 202)
+            self.assertEqual(payload["job"]["status"], "running")
+            kind, callback = start.call_args.args
+            self.assertEqual(kind, "manual")
+            callback()
+            daily.assert_called_once_with()
+        with patch.dict(journal_manager.JOB, {"status": "running"}), patch.object(journal_manager, "daily_pipeline") as daily:
+            status, payload = self.post("/api/admin/run", {"mode": "daily"})
+            self.assertEqual(status, 400)
+            self.assertIn("already running", payload["error"])
+            daily.assert_not_called()
+
     def test_canonical_alias_cannot_follow_the_same_journal_twice(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(
             journal_config, "CONFIG_PATH", Path(directory) / "config.json"

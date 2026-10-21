@@ -405,6 +405,20 @@ small {
   box-shadow: inset 0 1px 0 #ffffff26, 0 2px 5px #14292b10;
 }
 
+.refresh-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 124px;
+  flex-shrink: 0;
+}
+
+.refresh-button .saving-spinner {
+  width: 12px;
+  height: 12px;
+}
+
 :root[data-theme=dark] .button.primary {
   color: #14231e
 }

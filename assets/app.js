@@ -33,6 +33,7 @@ const state = {
   llmDirty: false,
   filterDirty: false,
   refreshAfterJob: false,
+  refreshStarting: false,
   filterIds: new Set(),
   prompt: '',
   match: null,
@@ -398,7 +399,8 @@ function renderUpdate() {
   const job = state.admin?.job;
   const running = job?.status === 'running';
   const task = ({metrics: 'IF update', add: 'Journal setup', delete: 'Unfollow', 'restore-filtered': 'Paper restore', 'gist-export': 'Gist export', 'gist-preview': 'Gist preview', 'gist-import': 'Gist import'})[job?.kind] || 'Paper update';
-  const active = ({metrics: 'Updating IF…', add: 'Adding journal…', delete: 'Unfollowing journal…', 'restore-filtered': 'Restoring papers…', 'gist-export': 'Uploading backup…', 'gist-preview': 'Checking backup…', 'gist-import': 'Importing data…'})[job?.kind] || 'Updating papers…';
+  const paperStage = ['manual', 'daily', 'daily-catchup', 'backfill'].includes(job?.kind) && ({collect: 'Collecting and filtering papers…', translate: 'Translating titles…', metrics: 'Updating IF…', validate: 'Checking papers…'})[job?.stage];
+  const active = paperStage || ({metrics: 'Updating IF…', add: 'Adding journal…', delete: 'Unfollowing journal…', 'restore-filtered': 'Restoring papers…', 'gist-export': 'Uploading backup…', 'gist-preview': 'Checking backup…', 'gist-import': 'Importing data…'})[job?.kind] || 'Updating papers…';
   const jobMessage = running ? active : job?.status === 'failed' ? `${task} failed` : job?.status === 'interrupted' ? `${task} interrupted` : state.adminLoaded && !state.admin ? 'Management offline' : '';
   const jobMarkup = jobMessage ? `<span class="job-status${running ? '' : ' failure'}">${running ? '<span class="saving-spinner" aria-hidden="true"></span>' : ''}${escape(jobMessage)}</span>` : '';
   $('update-status').title = `Collection: ${m.default_date} · Updated: ${time(m.updated_at)}`;
@@ -639,6 +641,10 @@ function renderAdmin() {
   const a = state.admin,
     running = a?.job?.status === 'running';
   for (const id of ['match-journal', 'run-now', 'update-metrics', 'save-filter', 'llm-save', 'llm-disable', 'llm-verify']) $(id).disabled = !a || running || state.adminBusy;
+  const refreshing = state.refreshStarting || (running && ['manual', 'daily', 'daily-catchup', 'backfill'].includes(a.job.kind));
+  $('run-now').setAttribute('aria-busy', String(Boolean(refreshing)));
+  $('refresh-spinner').hidden = !refreshing;
+  $('refresh-label').textContent = state.refreshStarting ? 'Starting…' : refreshing ? 'Refreshing…' : 'Refresh';
   for (const id of ['llm-base-url', 'llm-model', 'llm-api-key', 'edit-rules']) $(id).disabled = !a || running || state.adminBusy;
   const matchButton = $('confirm-follow');
   if (matchButton) matchButton.disabled = !a || running || state.adminBusy;
@@ -775,11 +781,19 @@ async function loadAdmin() {
     renderAdmin();
     const newlyCompleted = previousJob && state.admin.job?.finished_at && previousJob.finished_at !== state.admin.job.finished_at;
     if ((wasRunning || state.refreshAfterJob || newlyCompleted) && state.admin.job?.status !== 'running') {
-      state.refreshAfterJob = false;
       await loadMetadata();
       state.dayCache.clear();
+      state.selection.clear();
       await Promise.all([loadWindow(), loadArchive()]);
       renderReading();
+      state.refreshAfterJob = false;
+      if (state.admin.job?.kind === 'manual') {
+        const failed = Number(state.manifest.collection_summary?.failed || 0);
+        if (state.admin.job.status === 'failed') notify('Paper refresh failed. Check the task status and retry.', true);
+        else if (failed) notify(`Refresh finished with ${countLabel(failed, 'failed journal')}. You can retry.`, true);
+        else if (state.failedDates.length) notify('Papers updated, but some dates could not be loaded. Retry loading the list.', true);
+        else notify('Papers refreshed');
+      }
     }
   } catch {
     state.admin = null;
@@ -790,20 +804,23 @@ async function loadAdmin() {
   if (state.admin?.job?.status === 'running') state.poll = setTimeout(loadAdmin, 3000);
 }
 async function startJob(path, payload = {}) {
-  if (state.adminBusy) return;
+  if (state.adminBusy || !state.admin || state.admin.job?.status === 'running') return;
   state.adminBusy = true;
+  state.refreshStarting = path === '/run';
   renderAdmin();
   try {
     state.admin = await adminRequest(path, payload);
     state.refreshAfterJob = true;
     renderAdmin();
     notify(path.startsWith('/gist/') ? 'Backup task started' : 'Update started');
+    clearTimeout(state.poll);
     state.poll = setTimeout(loadAdmin, 1500);
     return true;
   } catch (e) {
     notify(e.message, true);
   } finally {
     state.adminBusy = false;
+    state.refreshStarting = false;
     renderAdmin();
   }
 }
@@ -1025,7 +1042,7 @@ function bindEvents() {
       notify(e.message, true);
     }
   });
-  $('run-now').addEventListener('click', () => startJob('/run'));
+  $('run-now').addEventListener('click', () => startJob('/run', {mode: 'daily'}));
   $('update-metrics').addEventListener('click', () => startJob('/metrics/update'));
   $('llm-form').addEventListener('submit', e => {
     e.preventDefault();
