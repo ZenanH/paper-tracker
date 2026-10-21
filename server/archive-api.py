@@ -14,15 +14,19 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 import threading
 import fcntl
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+from http_service import ThreadingHTTPServer
+
 DATA_DIR = Path(os.environ.get("PAPER_TRACKER_DATA_DIR", "/data")).expanduser().resolve()
 ARCHIVE_FILE = Path(os.environ.get("ARCHIVE_FILE", DATA_DIR / "archive/archive.json")).expanduser().resolve()
 MANIFEST_FILE = Path(os.environ.get("MANIFEST_FILE", DATA_DIR / "manifest.json")).expanduser().resolve()

@@ -12,7 +12,8 @@ import urllib.request
 import gist_sync
 import user_backup
 from datetime import date, datetime, timedelta
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
+from http_service import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo

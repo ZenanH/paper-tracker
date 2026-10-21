@@ -9,7 +9,7 @@ import threading
 import time
 import unittest
 from datetime import datetime
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
@@ -19,10 +19,19 @@ from zoneinfo import ZoneInfo
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 
 import run as container_server
+from http_service import ThreadingHTTPServer
 urlopen = build_opener(ProxyHandler({})).open
 
 
 class ServerTests(unittest.TestCase):
+    def test_listeners_do_not_require_reverse_dns(self):
+        with patch("socket.getfqdn", side_effect=RuntimeError("DNS unavailable")):
+            server = ThreadingHTTPServer(("127.0.0.1", 0), container_server.GatewayHandler)
+            try:
+                self.assertEqual(server.server_name, "127.0.0.1")
+            finally:
+                server.server_close()
+
     def test_all_default_storage_paths_follow_the_data_root(self):
         with tempfile.TemporaryDirectory() as directory:
             scripts = Path(__file__).resolve().parents[1] / "scripts"

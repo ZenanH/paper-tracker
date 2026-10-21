@@ -13,11 +13,14 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+from http_service import ThreadingHTTPServer
+
 DATA_DIR = Path(os.environ.get("PAPER_TRACKER_DATA_DIR", "/data"))
 DAY_FILE = re.compile(r"^/data/days/\d{4}-\d{2}-\d{2}\.json$")
 INTERNAL_HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
