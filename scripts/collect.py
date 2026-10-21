@@ -47,9 +47,10 @@ EXCLUDED_TITLE_PATTERNS = {
 
 
 class CrossrefClient:
-    def __init__(self, delay: float = 0.12, retries: int = 4) -> None:
+    def __init__(self, delay: float = 0.12, retries: int = 4, timeout: float = 45) -> None:
         self.delay = delay
         self.retries = retries
+        self.timeout = timeout
 
     def get(self, path: str, params: dict[str, str | int]) -> dict[str, Any]:
         params = {**params, **({"mailto": MAILTO} if MAILTO else {})}
@@ -57,7 +58,7 @@ class CrossrefClient:
         request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
         for attempt in range(self.retries):
             try:
-                with urllib.request.urlopen(request, timeout=45) as response:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
                     payload = json.load(response)
                 time.sleep(self.delay)
                 return payload["message"]
@@ -265,9 +266,7 @@ def prune_translation_cache() -> int:
     return removed
 
 
-def gather_for_journal(
-    client: CrossrefClient, journal: dict[str, Any], mode: str, target: date
-) -> tuple[list[dict[str, Any]], str]:
+def query_filters(journal: dict[str, Any], mode: str, target: date) -> list[list[str]]:
     # Recheck the complete publication window on every 12-hour run. The index
     # query also catches newly deposited works with missing publication dates.
     cutoff = retention_start(target)
@@ -282,12 +281,18 @@ def gather_for_journal(
             indexed_from = max(cutoff, min(target, parsed.date()) - timedelta(days=1))
         except (TypeError, ValueError, AttributeError):
             pass
-    filter_sets = [
+    return [
         [f"from-pub-date:{(cutoff - timedelta(days=1)).isoformat()}",
          f"until-pub-date:{target.isoformat()}", "type:journal-article"],
         [f"from-index-date:{indexed_from.isoformat()}",
          f"until-index-date:{target.isoformat()}", "type:journal-article"],
     ]
+
+
+def gather_for_journal(
+    client: CrossrefClient, journal: dict[str, Any], mode: str, target: date
+) -> tuple[list[dict[str, Any]], str]:
+    filter_sets = query_filters(journal, mode, target)
     errors = []
     successful_issns = []
     merged: dict[str, dict[str, Any]] = {}

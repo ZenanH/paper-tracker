@@ -107,6 +107,10 @@ async function request(path, options = {}) {
         ...options.headers
       }
     });
+    if (response.status === 401) {
+      location.assign('/login');
+      throw new Error('Please sign in again.');
+    }
     let body;
     try {
       body = await response.json();

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "fastapi",
+  "regions": ["iad1"],
+  "functions": {
+    "app.py": {"maxDuration": 300, "includeFiles": "{assets/**,index.html,favicon.ico,journal.json,scripts/**,server/archive-api.py,cloud/**}"}
+  },
+  "crons": [
+    {"path": "/api/cron/morning", "schedule": "0 17 * * *"},
+    {"path": "/api/cron/afternoon", "schedule": "0 5 * * *"}
+  ]
+}

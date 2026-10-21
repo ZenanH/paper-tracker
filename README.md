@@ -57,6 +57,17 @@ python3 scripts/run_local.py
 
 在 Settings → Gist backup 中连接 GitHub、导出 Secret Gist，或预览并导入自己账号拥有的 Gist。Secret Gist 不会公开列出，但知道链接的人可以读取。备份不包含模型/API 配置、密钥、令牌、日志或内部缓存。恢复会替换期刊、论文和阅读数据，并在导入前保存本机回退副本。
 
-## 部署方向
+## 部署到 Vercel
 
-后续部署目标是 Vercel Free；其存储、函数和定时任务迁移尚未完成，本 README 目前只说明本机原生运行方式。
+[![Deploy to Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FZenanH%2Fpaper-tracker&env=PAPER_TRACKER_PASSWORD%2CCRON_SECRET&stores=%5B%7B%22type%22%3A%22blob%22%2C%22access%22%3A%22private%22%7D%5D)
+
+点击按钮并导入 GitHub 仓库。部署设置会创建 Private Blob 存储，用于跨函数请求保存论文、设置和阅读状态；Vercel 函数的本地文件系统不作为持久存储。
+
+部署流程会提示输入以下变量，并用于 Production。需要预览部署时，也在 Vercel 项目的 Environment Variables 中为 Preview 添加它们：
+
+- `PAPER_TRACKER_PASSWORD`：登录密码，至少 16 个字符。
+- `CRON_SECRET`：随机生成的内部任务密钥，至少 32 个字符。
+
+保存环境变量后重新部署。打开部署地址并使用 `PAPER_TRACKER_PASSWORD` 登录。GitHub Gist 备份仍需在 Settings 中配置 GitHub OAuth Client ID 并由用户主动连接。
+
+`vercel.json` 配置两个每日 Cron：UTC 05:00、17:00，对应北京时间 13:00、次日 01:00，符合 Hobby 每个 Cron 每天运行一次的限制。Hobby 可能在对应 UTC 小时内任意时刻触发；Cron 可能延迟，不能保证精确完成时刻。

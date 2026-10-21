@@ -109,18 +109,18 @@ def begin_authorization(client_id: Any) -> dict:
         interval = max(int(result.get("interval", 5)), 5)
         flow_id = secrets.token_urlsafe(24)
         FLOWS.clear()
-        FLOWS[flow_id] = {"client_id": client_id, "device_code": result["device_code"], "expires": time.monotonic() + duration,
-                          "interval": interval, "next_poll": time.monotonic() + interval}
+        FLOWS[flow_id] = {"client_id": client_id, "device_code": result["device_code"], "expires": time.time() + duration,
+                          "interval": interval, "next_poll": time.time() + interval}
         return {"flow_id": flow_id, "user_code": result["user_code"], "verification_uri": "https://github.com/login/device", "expires_in": duration, "interval": interval}
 
 
 def poll_authorization(flow_id: Any) -> dict:
     with AUTH_LOCK:
         flow = FLOWS.get(str(flow_id))
-        if not flow or flow["expires"] <= time.monotonic():
+        if not flow or flow["expires"] <= time.time():
             FLOWS.pop(str(flow_id), None)
             raise ValueError("GitHub authorization expired. Connect again.")
-        if time.monotonic() < flow["next_poll"]:
+        if time.time() < flow["next_poll"]:
             return {"pending": True, "interval": flow["interval"]}
         result = request("https://github.com/login/oauth/access_token", {"client_id": flow["client_id"], "device_code": flow["device_code"],
                          "grant_type": "urn:ietf:params:oauth:grant-type:device_code"}, form=True)
@@ -128,7 +128,7 @@ def poll_authorization(flow_id: Any) -> dict:
         if error in {"authorization_pending", "slow_down"}:
             if error == "slow_down":
                 flow["interval"] += 5
-            flow["next_poll"] = time.monotonic() + flow["interval"]
+            flow["next_poll"] = time.time() + flow["interval"]
             return {"pending": True, "interval": flow["interval"]}
         if error or not result.get("access_token"):
             FLOWS.pop(str(flow_id), None)

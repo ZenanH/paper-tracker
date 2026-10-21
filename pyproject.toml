@@ -1,0 +1,11 @@
+[project]
+name = "paper-tracker"
+version = "1.0.0"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi==0.157.0",
+  "vercel-queue==0.9.1",
+]
+
+[[tool.vercel.subscribers]]
+entrypoint = "cloud.worker"
