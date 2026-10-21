@@ -4,7 +4,7 @@
 
 <h1 align="center">论文追踪</h1>
 
-<p align="center">个人论文阅读工具，使用本机 Python 服务运行。</p>
+<p align="center">个人论文阅读工具，通过 Docker 部署，使用挂载目录持久保存 JSON 数据。</p>
 
 ## 主要功能
 
@@ -15,59 +15,95 @@
 - 展示中科院 2025 升级版分区、Top 标记和可核验的影响因子。
 - 取消关注停止采集并保留收藏，可按原稳定 ID 重新关注。
 - 设置中配置翻译/过滤模型、过滤规则和 GitHub Gist 备份。
-- 数据保存在本机 `data/live/`、`archive/` 和 `secrets/`，与代码更新分离。
+- 论文、配置、阅读状态、收藏和凭据统一保存在容器 `/data`，升级和重建容器保留数据。
 - 点击页面顶部 **Refresh** 立即启动采集，对所选期刊的新论文执行过滤，再翻译标题；任务结束后自动重读列表。处理中可继续浏览，按钮禁用以避免重复任务。未配置模型时继续采集，跳过翻译与过滤。
 
 完整的数据规则和维护约定见 [AGENTS.md](AGENTS.md)。
 
-## 本机运行
+## Docker 部署
 
-要求：macOS 或 Linux、Python 3.10 或更新版本。应用不需要安装 Python 第三方包。
+仅支持 Docker 部署。服务器需要 Docker Engine 和 Docker Compose v2；无需在宿主机安装 Python、数据库或前端依赖。镜像为 `ghcr.io/zenanh/paper-tracker:latest`，支持 `linux/amd64` 和 `linux/arm64`。
 
 ```bash
 git clone https://github.com/ZenanH/paper-tracker.git
 cd paper-tracker
-
-mkdir -p data/live archive secrets
-chmod 700 secrets
 cp .env.example .env
-chmod 600 .env
 
-python3 scripts/run_local.py
+# 为本项目准备持久目录，默认使用宿主机 /data。
+sudo install -d -m 700 -o 1000 -g 1000 /data
+
+docker compose pull
+docker compose up -d
 ```
 
-打开 `http://127.0.0.1:18898/`。本机服务只监听回环地址；管理 API、归档 API 和内部数据文件不会作为独立公网端口或静态文件开放。按 `Ctrl-C` 停止本机服务。
+容器以 UID/GID `1000:1000` 运行。目录必须可由该用户读写；自定义用户时同步修改 `.env` 中的 `PAPER_TRACKER_UID`、`PAPER_TRACKER_GID` 及宿主目录所有者。如果宿主机 `/data` 已有其他用途，在 `.env` 中将 `PAPER_TRACKER_DATA_DIR` 改为本项目专用目录，例如 `/srv/paper-tracker/data`，并提前创建该目录；容器内挂载位置始终为 `/data`。
 
-启动管理服务会恢复中断任务，并在需要时启动补跑和定时采集；这些任务会写入 `data/live/` 和 `archive/`。运行数据、模型配置与 GitHub 令牌不会因更新代码而被覆盖。
+打开 `http://127.0.0.1:18898/`。Compose 默认只向宿主机回环地址发布网页端口；公网访问应通过带 HTTPS 和访问认证的反向代理。归档和管理服务只监听容器内部回环地址，不发布独立端口。
 
-2026-10-21 版本已按要求清空本机旧论文数据、阅读状态、运行报告和备份。首次启动从默认 32 刊初始化，之后保留用户修改；模型和 GitHub 凭据独立保留。刷新受数据源与模型处理耗时影响，页面显示实际阶段，不承诺即时完成。
+已有镜像不可用时可从源码构建：
 
-可在 `.env` 中设置 `CROSSREF_MAILTO`（可选）和公开的 `PAPER_TRACKER_GITHUB_CLIENT_ID`。模型 Base URL、API Key 和模型名称在网页 Settings 中配置；密钥只保存于 `secrets/llm-config.json`。
+```bash
+docker compose up -d --build
+```
 
-更新代码时先在运行终端按 `Ctrl-C`，然后执行：
+也可不使用 Compose，直接挂载服务器目录启动：
+
+```bash
+docker run -d --name paper-tracker --init --restart unless-stopped \
+  -p 127.0.0.1:18898:8080 \
+  --mount type=bind,source=/data,target=/data \
+  ghcr.io/zenanh/paper-tracker:latest
+```
+
+## 数据与更新
+
+只需挂载一个可读写的 `/data`。所有持久文件都存放在该目录下：
+
+```text
+/data/
+  journal-config.json          # 关注期刊和用户配置
+  journals.json               # 期刊分区和影响因子
+  manifest.json               # 论文日期清单
+  days/YYYY-MM-DD.json         # 日期论文数据
+  translations.json           # 翻译缓存
+  filter-config.json          # 标题过滤设置
+  title-classifications.json  # 分类缓存和审计
+  excluded-papers.json        # 过滤记录
+  collection-status.json      # 各期刊采集水位
+  task-status.json            # 任务状态
+  archive/
+    archive.json              # 已读状态和永久收藏
+    backups/                  # Gist 恢复前的回退副本
+  secrets/
+    llm-config.json           # 模型配置与密钥
+    github-gist.json          # GitHub 授权配置与令牌
+```
+
+`/data/secrets` 权限为 `0700`，凭据文件为 `0600`。网页只公开论文日期清单、期刊元数据和日期论文文件；运行配置、审计、归档原文件及凭据不能作为静态文件访问。数据不会打进镜像或提交到 Git。
+
+首次启动从默认 32 刊初始化，之后保留用户修改。常驻管理服务在北京时间 01:00、13:00 更新论文，启动时恢复中断状态并按需补跑；页面 **Refresh** 可手动触发同一处理流程。实际完成时间取决于数据源和模型，不承诺即时完成。
+
+可在 `.env` 中设置 `CROSSREF_MAILTO`（可选）和公开的 `PAPER_TRACKER_GITHUB_CLIENT_ID`。模型 Base URL、API Key 和模型名称在网页 Settings 中配置。
+
+更新镜像并重建容器：
 
 ```bash
 git pull --ff-only
-python3 scripts/run_local.py
+docker compose pull
+docker compose up -d
+docker compose logs --tail=100 paper-tracker
 ```
+
+挂载目录保持不变即可保留论文、收藏和设置。迁移服务器时先停止容器，再备份整个宿主数据目录；其中包含密钥和令牌，完整备份须加密。不要自动清空数据目录。
 
 ## Gist 备份与恢复
 
-在 [GitHub OAuth Apps](https://github.com/settings/developers) 注册 OAuth App，开启 Enable Device Flow 并关闭 Allow wildcard matching。Device Flow 不使用 Redirect URI；本机预览地址可填 `http://127.0.0.1:18898/`。只需公开 Client ID，不需要 Client Secret。
+在 [GitHub OAuth Apps](https://github.com/settings/developers) 注册 OAuth App，开启 Enable Device Flow 并关闭 Allow wildcard matching。Device Flow 不使用 Redirect URI；可填写自己的站点地址。只需公开 Client ID，不需要 Client Secret。
 
-在 Settings → Gist backup 中连接 GitHub、导出 Secret Gist，或预览并导入自己账号拥有的 Gist。Secret Gist 不会公开列出，但知道链接的人可以读取。备份不包含模型/API 配置、密钥、令牌、日志或内部缓存。恢复会替换期刊、论文和阅读数据，并在导入前保存本机回退副本。
+在 Settings → Gist backup 中连接 GitHub、导出 Secret Gist，或预览并导入自己账号拥有的 Gist。Secret Gist 不会公开列出，但知道链接的人可以读取。备份不包含模型/API 配置、密钥、令牌、日志或内部缓存。恢复会替换期刊、论文和阅读数据，并在导入前保存 `/data/archive/backups/` 回退副本。
 
-## 部署到 Vercel
+## CI 镜像构建
 
-[![Deploy to Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FZenanH%2Fpaper-tracker&env=PAPER_TRACKER_PASSWORD%2CCRON_SECRET&stores=%5B%7B%22type%22%3A%22blob%22%2C%22access%22%3A%22private%22%7D%5D)
+GitHub Actions 在 Pull Request 中执行单元测试、语法检查、镜像构建和容器持久化验收；测试使用临时数据，不连接真实模型或 GitHub Gist。推送到 `main` 后，全部检查通过才向 GHCR 发布 `latest` 和提交 SHA 标签；`v*` 标签发布对应版本镜像。
 
-点击按钮并导入 GitHub 仓库。部署设置会创建 Private Blob 存储，用于跨函数请求保存论文、设置和阅读状态；Vercel 函数的本地文件系统不作为持久存储。
-
-部署流程会提示输入以下变量，并用于 Production。需要预览部署时，也在 Vercel 项目的 Environment Variables 中为 Preview 添加它们：
-
-- `PAPER_TRACKER_PASSWORD`：登录密码，至少 16 个字符。
-- `CRON_SECRET`：随机生成的内部任务密钥，至少 32 个字符。
-
-保存环境变量后重新部署。打开部署地址并使用 `PAPER_TRACKER_PASSWORD` 登录。GitHub Gist 备份仍需在 Settings 中配置 GitHub OAuth Client ID 并由用户主动连接。
-
-`vercel.json` 配置两个每日 Cron：UTC 05:00、17:00，对应北京时间 13:00、次日 01:00，符合 Hobby 每个 Cron 每天运行一次的限制。Hobby 可能在对应 UTC 小时内任意时刻触发；Cron 可能延迟，不能保证精确完成时刻。
+镜像构建覆盖 `linux/amd64` 和 `linux/arm64`。CI 不执行日常采集，也不包含任何运行数据或凭据。GHCR 软件包需要设为 Public 才能匿名拉取；私有软件包需要先登录有权限的账号。

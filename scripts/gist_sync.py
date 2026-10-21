@@ -14,9 +14,9 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from common import ROOT
+from common import DATA_DIR
 
-CONFIG_PATH = Path(os.environ.get("PAPER_TRACKER_GIST_CONFIG", ROOT / "secrets/github-gist.json"))
+CONFIG_PATH = Path(os.environ.get("PAPER_TRACKER_GIST_CONFIG", DATA_DIR / "secrets/github-gist.json"))
 AUTH_LOCK = threading.RLock()
 FLOWS: dict[str, dict[str, Any]] = {}
 

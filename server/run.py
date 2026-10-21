@@ -5,6 +5,7 @@ import argparse
 import mimetypes
 import os
 import re
+import signal
 import socket
 import subprocess
 import sys
@@ -17,10 +18,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT / "data" / "live"
-ARCHIVE_DIR = ROOT / "archive"
-SECRETS_DIR = ROOT / "secrets"
-ENV_FILE_KEYS = {"CROSSREF_MAILTO", "PAPER_TRACKER_GITHUB_CLIENT_ID"}
+DATA_DIR = Path(os.environ.get("PAPER_TRACKER_DATA_DIR", "/data"))
 DAY_FILE = re.compile(r"^/data/days/\d{4}-\d{2}-\d{2}\.json$")
 
 
@@ -28,20 +26,6 @@ def free_port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
-
-
-def load_local_env() -> None:
-    path = ROOT / ".env"
-    if not path.exists():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        key, separator, value = line.strip().partition("=")
-        if not separator or key not in ENV_FILE_KEYS or key in os.environ:
-            continue
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        os.environ[key] = value
 
 
 def static_target(url_path: str, data_dir: Path = DATA_DIR) -> Path | None:
@@ -75,7 +59,7 @@ def api_target(path: str, archive_port: int, manager_port: int) -> str | None:
     return None
 
 
-class LocalHandler(BaseHTTPRequestHandler):
+class GatewayHandler(BaseHTTPRequestHandler):
     archive_port = 0
     manager_port = 0
     data_dir = DATA_DIR
@@ -89,7 +73,14 @@ class LocalHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         path = urllib.parse.urlsplit(self.path).path
         if path == "/healthz":
-            self._send(200, b"ok\n", "text/plain; charset=utf-8", "no-store")
+            try:
+                for port, endpoint in ((self.archive_port, "/api/healthz"), (self.manager_port, "/api/admin/healthz")):
+                    with urllib.request.urlopen(f"http://127.0.0.1:{port}{endpoint}", timeout=1):
+                        pass
+            except (urllib.error.URLError, TimeoutError, OSError):
+                self._send(503, b"Service unavailable\n", "text/plain; charset=utf-8", "no-store")
+            else:
+                self._send(200, b"ok\n", "text/plain; charset=utf-8", "no-store")
             return
         if path.startswith("/api/"):
             self._proxy()
@@ -154,7 +145,7 @@ class LocalHandler(BaseHTTPRequestHandler):
         except urllib.error.HTTPError as exc:
             response = exc
         except (urllib.error.URLError, TimeoutError, OSError):
-            self._send(502, b'{"error":"Local service unavailable."}', "application/json", "no-store")
+            self._send(502, b'{"error":"Service unavailable."}', "application/json", "no-store")
             return
         with response:
             payload = response.read()
@@ -177,7 +168,7 @@ class LocalHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, format: str, *args: object) -> None:
-        print(f"local-web: {format % args}", flush=True)
+        print(f"web: {format % args}", flush=True)
 
 
 def wait_for_service(url: str, process: subprocess.Popen, label: str, timeout: float = 30) -> None:
@@ -205,23 +196,20 @@ def stop_process(process: subprocess.Popen) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run the Paper Tracker local web application.")
-    parser.add_argument("--host", default="127.0.0.1", help="Web interface bind address (default: loopback only).")
-    parser.add_argument("--port", type=int, default=18898, help="Web interface port (default: 18898).")
-    parser.add_argument("--data-dir", type=Path, default=DATA_DIR, help="Runtime JSON directory (default: data/live).")
-    parser.add_argument("--archive-dir", type=Path, default=ARCHIVE_DIR, help="Archive directory (default: archive).")
-    parser.add_argument("--secrets-dir", type=Path, default=SECRETS_DIR, help="Protected settings directory (default: secrets).")
+    parser = argparse.ArgumentParser(description="Run the Paper Tracker container services.")
+    parser.add_argument("--host", default="0.0.0.0", help="Web interface bind address inside the container.")
+    parser.add_argument("--port", type=int, default=8080, help="Web interface port (default: 8080).")
+    parser.add_argument("--data-dir", type=Path, default=DATA_DIR, help="Persistent volume root (default: /data).")
     args = parser.parse_args()
     if not 0 <= args.port <= 65535:
         parser.error("--port must be between 0 and 65535")
-    if args.host not in {"127.0.0.1", "localhost"}:
-        parser.error("The local runner only permits IPv4 loopback addresses.")
-    bind_host = "127.0.0.1"
+    if args.host not in {"0.0.0.0", "127.0.0.1", "localhost"}:
+        parser.error("Use 0.0.0.0 or an IPv4 loopback address.")
+    bind_host = "127.0.0.1" if args.host == "localhost" else args.host
 
-    load_local_env()
     data_dir = args.data_dir.expanduser().resolve()
-    archive_dir = args.archive_dir.expanduser().resolve()
-    secrets_dir = args.secrets_dir.expanduser().resolve()
+    archive_dir = data_dir / "archive"
+    secrets_dir = data_dir / "secrets"
     data_dir.mkdir(parents=True, exist_ok=True)
     archive_dir.mkdir(parents=True, exist_ok=True)
     secrets_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -246,26 +234,35 @@ def main() -> int:
         "MANAGER_PORT": str(manager_port),
     })
     archive_process = manager_process = None
+    stopping = False
+
+    def stop(_signum, _frame):
+        nonlocal stopping
+        stopping = True
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
     try:
         archive_process = subprocess.Popen([sys.executable, str(ROOT / "server" / "archive-api.py")], cwd=ROOT, env=child_env)
         wait_for_service(f"http://127.0.0.1:{archive_port}/api/healthz", archive_process, "archive service")
         manager_process = subprocess.Popen([sys.executable, str(ROOT / "scripts" / "journal_manager.py")], cwd=ROOT, env=child_env)
         wait_for_service(f"http://127.0.0.1:{manager_port}/api/admin/healthz", manager_process, "management service")
 
-        LocalHandler.archive_port = archive_port
-        LocalHandler.manager_port = manager_port
-        LocalHandler.data_dir = data_dir
-        server = ThreadingHTTPServer((bind_host, args.port), LocalHandler)
+        GatewayHandler.archive_port = archive_port
+        GatewayHandler.manager_port = manager_port
+        GatewayHandler.data_dir = data_dir
+        server = ThreadingHTTPServer((bind_host, args.port), GatewayHandler)
+        server.timeout = 0.5
         print(f"Paper Tracker: http://{bind_host}:{server.server_address[1]}/", flush=True)
-        print("Press Ctrl-C to stop the local services.", flush=True)
         try:
-            server.serve_forever()
-        except KeyboardInterrupt:
-            pass
+            while not stopping:
+                if archive_process.poll() is not None or manager_process.poll() is not None:
+                    raise RuntimeError("An internal service exited; stopping the container.")
+                server.handle_request()
         finally:
             server.server_close()
     except OSError as exc:
-        print(f"Could not start the local web server: {exc}", file=sys.stderr)
+        print(f"Could not start Paper Tracker; check /data permissions and the web port: {exc}", file=sys.stderr)
         return 1
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)

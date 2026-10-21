@@ -7,8 +7,8 @@
                          （Prefer: return=minimal 时只返回更新时间）
   GET  /api/healthz   → health check
 
-存储：ARCHIVE_FILE（默认位于项目 archive/archive.json），原子写入。
-本机运行时只监听回环地址。
+存储：ARCHIVE_FILE（默认 /data/archive/archive.json），原子写入。
+仅监听容器内部回环地址，由网页入口转发 API 请求。
 """
 from __future__ import annotations
 
@@ -23,8 +23,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = Path(os.environ.get("PAPER_TRACKER_DATA_DIR", ROOT / "data/live")).expanduser().resolve()
-ARCHIVE_FILE = Path(os.environ.get("ARCHIVE_FILE", ROOT / "archive/archive.json")).expanduser().resolve()
+DATA_DIR = Path(os.environ.get("PAPER_TRACKER_DATA_DIR", "/data")).expanduser().resolve()
+ARCHIVE_FILE = Path(os.environ.get("ARCHIVE_FILE", DATA_DIR / "archive/archive.json")).expanduser().resolve()
 MANIFEST_FILE = Path(os.environ.get("MANIFEST_FILE", DATA_DIR / "manifest.json")).expanduser().resolve()
 PORT = int(os.environ.get("PORT", "8080"))
 HOST = os.environ.get("HOST", "127.0.0.1")

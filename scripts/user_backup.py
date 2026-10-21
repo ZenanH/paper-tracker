@@ -18,7 +18,7 @@ from common import BEIJING, DATA_DIR, ROOT, article_key, ensure_publication_date
 from gist_sync import protected_write
 from journal_config import snapshot_row_for_name
 
-ARCHIVE_FILE = Path(os.environ.get("PAPER_TRACKER_ARCHIVE_FILE", ROOT / "archive/archive.json"))
+ARCHIVE_FILE = Path(os.environ.get("PAPER_TRACKER_ARCHIVE_FILE", DATA_DIR / "archive/archive.json"))
 MANAGED = ("journal-config.json", "journals.json", "manifest.json", "filter-config.json", "collection-status.json",
            "supplements.json", "translations.json", "title-classifications.json", "excluded-papers.json", "maintenance-status.json")
 JOURNAL_FIELDS = ("id", "name", "source_name", "group", "url", "issns", "cas", "impact_factor", "origin", "added_at", "unfollowed_at")

@@ -7,10 +7,10 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
-from common import ROOT, iso_now
+from common import DATA_DIR, iso_now
 
 CONFIG_PATH = Path(
-    os.environ.get("PAPER_TRACKER_LLM_CONFIG", ROOT / "secrets" / "llm-config.json")
+    os.environ.get("PAPER_TRACKER_LLM_CONFIG", DATA_DIR / "secrets" / "llm-config.json")
 ).expanduser().resolve()
 
 

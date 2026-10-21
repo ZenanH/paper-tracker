@@ -1,4 +1,5 @@
 import json
+import os
 import signal
 import sys
 import subprocess
@@ -14,12 +15,29 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 
-import run_local
+import run as container_server
 
 
-class LocalServerTests(unittest.TestCase):
+class ServerTests(unittest.TestCase):
+    def test_all_default_storage_paths_follow_the_data_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            scripts = Path(__file__).resolve().parents[1] / "scripts"
+            environment = {key: value for key, value in os.environ.items()
+                           if not key.startswith("PAPER_TRACKER_")}
+            environment["PAPER_TRACKER_DATA_DIR"] = directory
+            code = (
+                "import sys,json; sys.path.insert(0,sys.argv[1]); "
+                "import common,llm_settings,gist_sync,user_backup; "
+                "print(json.dumps([str(common.DATA_DIR),str(llm_settings.CONFIG_PATH),"
+                "str(gist_sync.CONFIG_PATH),str(user_backup.ARCHIVE_FILE)]))"
+            )
+            actual = json.loads(subprocess.check_output([sys.executable, "-B", "-c", code, str(scripts)], env=environment))
+            root = Path(directory).resolve()
+            self.assertEqual(actual, [str(root), str(root / "secrets/llm-config.json"),
+                                      str(root / "secrets/github-gist.json"), str(root / "archive/archive.json")])
+
     def test_static_allowlist_serves_only_public_data(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -28,16 +46,18 @@ class LocalServerTests(unittest.TestCase):
             (root / "days").mkdir()
             (root / "days" / "2026-10-21.json").write_text("{}", encoding="utf-8")
             (root / "excluded-papers.json").write_text("secret", encoding="utf-8")
-            self.assertEqual(run_local.static_target("/data/manifest.json", root).read_text(), "{}")
-            self.assertEqual(run_local.static_target("/data/journals.json", root).read_text(), "{}")
-            self.assertEqual(run_local.static_target("/data/days/2026-10-21.json", root).read_text(), "{}")
-            self.assertIsNone(run_local.static_target("/data/excluded-papers.json", root))
-            self.assertIsNone(run_local.static_target("/data/days/../../secrets.json", root))
+            self.assertEqual(container_server.static_target("/data/manifest.json", root).read_text(), "{}")
+            self.assertEqual(container_server.static_target("/data/journals.json", root).read_text(), "{}")
+            self.assertEqual(container_server.static_target("/data/days/2026-10-21.json", root).read_text(), "{}")
+            self.assertIsNone(container_server.static_target("/data/excluded-papers.json", root))
+            self.assertIsNone(container_server.static_target("/data/days/../../secrets.json", root))
+            self.assertIsNone(container_server.static_target("/data/archive/archive.json", root))
+            self.assertIsNone(container_server.static_target("/data/secrets/llm-config.json", root))
 
     def test_api_routes_choose_manager_before_archive(self):
-        self.assertEqual(run_local.api_target("/api/admin/healthz", 18080, 18090), "http://127.0.0.1:18090")
-        self.assertEqual(run_local.api_target("/api/archive", 18080, 18090), "http://127.0.0.1:18080")
-        self.assertIsNone(run_local.api_target("/assets/app.js", 18080, 18090))
+        self.assertEqual(container_server.api_target("/api/admin/healthz", 18080, 18090), "http://127.0.0.1:18090")
+        self.assertEqual(container_server.api_target("/api/archive", 18080, 18090), "http://127.0.0.1:18080")
+        self.assertIsNone(container_server.api_target("/assets/app.js", 18080, 18090))
 
     def test_gateway_proxies_management_requests_same_origin(self):
         class BackendHandler(BaseHTTPRequestHandler):
@@ -58,7 +78,7 @@ class LocalServerTests(unittest.TestCase):
                 pass
 
         backend = ThreadingHTTPServer(("127.0.0.1", 0), BackendHandler)
-        frontend = ThreadingHTTPServer(("127.0.0.1", 0), run_local.LocalHandler)
+        frontend = ThreadingHTTPServer(("127.0.0.1", 0), container_server.GatewayHandler)
         frontend.RequestHandlerClass.manager_port = backend.server_address[1]
         frontend.RequestHandlerClass.archive_port = backend.server_address[1]
         threads = [threading.Thread(target=server.serve_forever, daemon=True) for server in (backend, frontend)]
@@ -90,12 +110,26 @@ class LocalServerTests(unittest.TestCase):
             for thread in threads:
                 thread.join(timeout=2)
 
-    def test_local_runner_starts_api_services_without_touching_project_data(self):
+    def test_health_check_fails_when_an_internal_service_is_unavailable(self):
+        frontend = ThreadingHTTPServer(("127.0.0.1", 0), container_server.GatewayHandler)
+        thread = threading.Thread(target=frontend.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with patch.object(container_server.urllib.request, "urlopen", side_effect=OSError("offline")):
+                with self.assertRaises(HTTPError) as error:
+                    urlopen(f"http://127.0.0.1:{frontend.server_address[1]}/healthz")
+                self.assertEqual(error.exception.code, 503)
+                error.exception.close()
+        finally:
+            frontend.shutdown()
+            frontend.server_close()
+            thread.join(timeout=2)
+
+    def test_container_entrypoint_uses_one_volume_and_stops_on_sigterm(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            data_dir, archive_dir, secrets_dir = (root / "data", root / "archive", root / "secrets")
+            data_dir = root / "data"
             data_dir.mkdir()
-            archive_dir.mkdir()
             today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
             stamp = datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds")
             (data_dir / "journal-config.json").write_text(json.dumps({"categories": {}, "config_updated_at": stamp}))
@@ -106,10 +140,9 @@ class LocalServerTests(unittest.TestCase):
                 "available_dates": [],
             }))
             process = subprocess.Popen([
-                sys.executable, str(Path(run_local.__file__)),
+                sys.executable, str(Path(container_server.__file__)),
                 "--host", "127.0.0.1", "--port", "0",
-                "--data-dir", str(data_dir), "--archive-dir", str(archive_dir),
-                "--secrets-dir", str(secrets_dir),
+                "--data-dir", str(data_dir),
             ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             try:
                 deadline = time.monotonic() + 12
@@ -120,8 +153,8 @@ class LocalServerTests(unittest.TestCase):
                         url = line.split(": ", 1)[1].strip()
                         break
                     if process.poll() is not None:
-                        self.fail(f"Local runner exited unexpectedly: {process.stdout.read()}")
-                self.assertIsNotNone(url, "Local runner did not announce its listening URL")
+                        self.fail(f"Container server exited unexpectedly: {process.stdout.read()}")
+                self.assertIsNotNone(url, "Container server did not announce its listening URL")
                 with urlopen(url) as response:
                     self.assertIn("Paper Tracker", response.read().decode("utf-8"))
                 with urlopen(url + "data/manifest.json") as response:
@@ -130,9 +163,18 @@ class LocalServerTests(unittest.TestCase):
                     self.assertEqual(json.load(response)["favorites"], {})
                 with urlopen(url + "api/admin/healthz") as response:
                     self.assertEqual(json.load(response)["status"], "ok")
+                article = {"id": "persistent-favorite", "journal_id": "example", "title_en": "Mechanics", "date": today.isoformat()}
+                request = Request(url + "api/archive", data=json.dumps({"action": "favorite", "items": [article]}).encode(), headers={"Content-Type": "application/json"})
+                with urlopen(request) as response:
+                    self.assertEqual(response.status, 200)
+                saved = json.loads((data_dir / "archive/archive.json").read_text())
+                self.assertIn(article["id"], saved["favorites"])
+                self.assertEqual((data_dir / "secrets").stat().st_mode & 0o777, 0o700)
+                process.send_signal(signal.SIGTERM)
+                self.assertEqual(process.wait(timeout=12), 0)
             finally:
                 if process.poll() is None:
-                    process.send_signal(signal.SIGINT)
+                    process.send_signal(signal.SIGTERM)
                     try:
                         process.wait(timeout=10)
                     except subprocess.TimeoutExpired:

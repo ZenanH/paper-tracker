@@ -1,0 +1,21 @@
+services:
+  paper-tracker:
+    image: ghcr.io/zenanh/paper-tracker:latest
+    build: .
+    init: true
+    restart: unless-stopped
+    user: "${PAPER_TRACKER_UID:-1000}:${PAPER_TRACKER_GID:-1000}"
+    ports:
+      - "127.0.0.1:${PAPER_TRACKER_PORT:-18898}:8080"
+    environment:
+      TZ: Asia/Shanghai
+      PAPER_TRACKER_DATA_DIR: /data
+      CROSSREF_MAILTO: ${CROSSREF_MAILTO:-}
+      PAPER_TRACKER_GITHUB_CLIENT_ID: ${PAPER_TRACKER_GITHUB_CLIENT_ID:-}
+    volumes:
+      - type: bind
+        source: ${PAPER_TRACKER_DATA_DIR:-/data}
+        target: /data
+        bind:
+          create_host_path: false
+    stop_grace_period: 30s
