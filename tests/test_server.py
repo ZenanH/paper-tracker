@@ -1,5 +1,6 @@
 import json
 import os
+import queue
 import signal
 import sys
 import subprocess
@@ -12,12 +13,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.request import Request, ProxyHandler, build_opener
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 
 import run as container_server
+urlopen = build_opener(ProxyHandler({})).open
 
 
 class ServerTests(unittest.TestCase):
@@ -115,7 +117,7 @@ class ServerTests(unittest.TestCase):
         thread = threading.Thread(target=frontend.serve_forever, daemon=True)
         thread.start()
         try:
-            with patch.object(container_server.urllib.request, "urlopen", side_effect=OSError("offline")):
+            with patch.object(container_server.INTERNAL_HTTP, "open", side_effect=OSError("offline")):
                 with self.assertRaises(HTTPError) as error:
                     urlopen(f"http://127.0.0.1:{frontend.server_address[1]}/healthz")
                 self.assertEqual(error.exception.code, 503)
@@ -144,17 +146,30 @@ class ServerTests(unittest.TestCase):
                 "--host", "127.0.0.1", "--port", "0",
                 "--data-dir", str(data_dir),
             ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            output = queue.Queue()
+            logs = []
+
+            def read_output():
+                for line in process.stdout:
+                    output.put(line)
+
+            reader = threading.Thread(target=read_output, daemon=True)
+            reader.start()
             try:
-                deadline = time.monotonic() + 12
+                deadline = time.monotonic() + 75
                 url = None
                 while time.monotonic() < deadline:
-                    line = process.stdout.readline()
+                    try:
+                        line = output.get(timeout=0.25)
+                    except queue.Empty:
+                        if process.poll() is not None:
+                            break
+                        continue
+                    logs.append(line)
                     if line.startswith("Paper Tracker: "):
                         url = line.split(": ", 1)[1].strip()
                         break
-                    if process.poll() is not None:
-                        self.fail(f"Container server exited unexpectedly: {process.stdout.read()}")
-                self.assertIsNotNone(url, "Container server did not announce its listening URL")
+                self.assertIsNotNone(url, "Container server did not become ready:\n" + "".join(logs))
                 with urlopen(url) as response:
                     self.assertIn("Paper Tracker", response.read().decode("utf-8"))
                 with urlopen(url + "data/manifest.json") as response:
@@ -178,8 +193,9 @@ class ServerTests(unittest.TestCase):
                     try:
                         process.wait(timeout=10)
                     except subprocess.TimeoutExpired:
-                        process.terminate()
+                        process.kill()
                         process.wait(timeout=5)
+                reader.join(timeout=2)
                 if process.stdout:
                     process.stdout.close()
 

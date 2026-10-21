@@ -20,6 +20,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = Path(os.environ.get("PAPER_TRACKER_DATA_DIR", "/data"))
 DAY_FILE = re.compile(r"^/data/days/\d{4}-\d{2}-\d{2}\.json$")
+INTERNAL_HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def free_port() -> int:
@@ -75,7 +76,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
         if path == "/healthz":
             try:
                 for port, endpoint in ((self.archive_port, "/api/healthz"), (self.manager_port, "/api/admin/healthz")):
-                    with urllib.request.urlopen(f"http://127.0.0.1:{port}{endpoint}", timeout=1):
+                    with INTERNAL_HTTP.open(f"http://127.0.0.1:{port}{endpoint}", timeout=1):
                         pass
             except (urllib.error.URLError, TimeoutError, OSError):
                 self._send(503, b"Service unavailable\n", "text/plain; charset=utf-8", "no-store")
@@ -141,7 +142,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 headers[name] = value
         request = urllib.request.Request(base + self.path, data=body, headers=headers, method=self.command)
         try:
-            response: Any = urllib.request.urlopen(request, timeout=65)
+            response: Any = INTERNAL_HTTP.open(request, timeout=65)
         except urllib.error.HTTPError as exc:
             response = exc
         except (urllib.error.URLError, TimeoutError, OSError):
@@ -177,7 +178,7 @@ def wait_for_service(url: str, process: subprocess.Popen, label: str, timeout: f
         if process.poll() is not None:
             raise RuntimeError(f"{label} exited with status {process.returncode}.")
         try:
-            with urllib.request.urlopen(url, timeout=1):
+            with INTERNAL_HTTP.open(url, timeout=1):
                 return
         except (urllib.error.URLError, TimeoutError):
             time.sleep(0.2)
