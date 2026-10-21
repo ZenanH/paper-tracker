@@ -39,14 +39,9 @@ class ValidateDataTests(unittest.TestCase):
                     "default_date": "2026-09-21",
                     "retention": {"start": "2026-06-21", "end": "2026-09-21"},
                     "available_dates": [],
-                    "late_addition_count": 0,
-                    "date_pending_count": 0,
                 }
             ),
             encoding="utf-8",
-        )
-        (root / "supplements.json").write_text(
-            json.dumps({"late_additions": [], "date_pending": []}), encoding="utf-8"
         )
         (root / "excluded-papers.json").write_text(
             json.dumps({"entries": {"doi:10.1000/unknown-date": article}}),

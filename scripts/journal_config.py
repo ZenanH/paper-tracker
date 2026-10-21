@@ -15,6 +15,7 @@ from common import (
     ROOT,
     TITLE_FILTER_RULE_VERSION,
     iso_now,
+    git_blob_sha,
     now_beijing,
     read_json,
     retention_start,
@@ -39,8 +40,17 @@ def normalized(value: str) -> str:
     )
 
 
+CANONICAL_ALIASES = {
+    normalized("Future Generation Computer Systems"): normalized(
+        "Future Generation Computer Systems-The International Journal of eScience"
+    )
+}
+
+
 def load_snapshot_rows() -> list[dict[str, str]]:
     content = LOCAL_SNAPSHOT.read_bytes()
+    if git_blob_sha(content) != "5918c4ee712878e2b6bc2e5d50f7a87b3c67a719":
+        raise ValueError("The 2025 CAS snapshot checksum failed. Journal verification is unavailable.")
     return list(csv.DictReader(io.StringIO(content.decode("utf-8-sig"))))
 
 
@@ -92,7 +102,7 @@ def ensure_runtime_data() -> None:
 
     manifest_path = DATA_DIR / "manifest.json"
     if not manifest_path.exists():
-        target = now_beijing().date() - timedelta(days=1)
+        target = now_beijing().date()
         journals = read_json(DATA_DIR / "journals.json", {}).get("journals", [])
         write_json(
             manifest_path,
@@ -106,8 +116,6 @@ def ensure_runtime_data() -> None:
                 },
                 "available_dates": [],
                 "journal_count": len(journals),
-                "late_addition_count": 0,
-                "date_pending_count": 0,
                 "collection_summary": {"ok": 0, "failed": 0},
             },
         )
@@ -126,12 +134,7 @@ def snapshot_row_for_name(name: str) -> dict[str, str]:
     if len(exact) == 1:
         return exact[0]
 
-    aliases = {
-        normalized("Future Generation Computer Systems"): normalized(
-            "Future Generation Computer Systems-The International Journal of eScience"
-        )
-    }
-    alias = aliases.get(query)
+    alias = CANONICAL_ALIASES.get(query)
     if alias:
         matches = [row for row in rows if normalized(row.get("Journal", "")) == alias]
         if len(matches) == 1:
@@ -142,8 +145,8 @@ def snapshot_row_for_name(name: str) -> dict[str, str]:
         return partial[0]
     if partial:
         candidates = ", ".join(row["Journal"] for row in partial[:5])
-        raise ValueError(f"期刊名称不唯一，请填写完整名称。候选：{candidates}")
-    raise ValueError("固定 2025 分区快照中未找到该期刊，请核对英文全名")
+        raise ValueError(f"The journal name is ambiguous. Enter its full name. Matches: {candidates}")
+    raise ValueError("No match in the fixed 2025 snapshot. Check the full English journal name.")
 
 
 def discover_metric_url(issns: list[str]) -> str | None:
@@ -177,15 +180,16 @@ def default_entry(name: str) -> tuple[str, dict[str, Any]] | None:
 def add_journal(name: str) -> dict[str, Any]:
     name = " ".join(str(name or "").split())
     if not name:
-        raise ValueError("期刊名称不能为空")
+        raise ValueError("Enter a journal name.")
     config = ensure_config()
     row = snapshot_row_for_name(name)
     canonical_name = row["Journal"].strip()
     display_name = name if normalized(name) == normalized(canonical_name) else canonical_name
     canonical_key = normalized(canonical_name)
     for _, entry in iter_entries(config):
-        if normalized(entry["name"]) == canonical_key or normalized(entry["name"]) == normalized(name):
-            raise ValueError("该期刊已经在追踪列表中")
+        existing_key = normalized(entry["name"])
+        if CANONICAL_ALIASES.get(existing_key, existing_key) == canonical_key:
+            raise ValueError("You already follow this journal.")
 
     issns = list(dict.fromkeys(part.strip() for part in row["ISSN/EISSN"].split("/") if part.strip()))
     known = default_entry(name) or default_entry(canonical_name)
@@ -200,9 +204,13 @@ def add_journal(name: str) -> dict[str, Any]:
         }
     entry["origin"] = "user"
     entry["added_at"] = iso_now()
-    metric_url = discover_metric_url(issns)
-    if metric_url:
-        entry["metric_url"] = metric_url
+    # Re-following reuses the previous stable ID and saved journal metadata.
+    inactive = config.setdefault("unfollowed_journals", [])
+    previous = next((journal for journal in inactive if normalized(journal["name"]) == normalized(entry["name"])), None)
+    if previous:
+        entry.update(previous.get("config_entry", {}))
+        group = previous.get("group", group)
+        inactive.remove(previous)
     config.setdefault("categories", {}).setdefault(group, []).append(entry)
     config["config_updated_at"] = iso_now()
     write_json(CONFIG_PATH, config)
@@ -214,6 +222,20 @@ def add_journal(name: str) -> dict[str, Any]:
     }
 
 
+def discover_journal_metric(journal_id: str) -> None:
+    """Publisher discovery runs in the background task, never in the follow request."""
+    config = ensure_config()
+    for _, entry in iter_entries(config):
+        if slugify(entry["name"]) != journal_id or entry.get("metric_url"):
+            continue
+        row = snapshot_row_for_name(entry["name"])
+        url = discover_metric_url(row["ISSN/EISSN"].split("/"))
+        if url:
+            entry["metric_url"] = url
+            write_json(CONFIG_PATH, config)
+        return
+
+
 def remove_journal(journal_id: str) -> dict[str, Any]:
     config = ensure_config()
     removed = None
@@ -222,11 +244,15 @@ def remove_journal(journal_id: str) -> dict[str, Any]:
         for entry in entries:
             if slugify(entry["name"]) == journal_id:
                 removed = {"id": journal_id, "name": entry["name"], "group": group}
+                metadata = next((journal for journal in read_json(DATA_DIR / "journals.json", {}).get("journals", []) if journal.get("id") == journal_id), {})
+                inactive = config.setdefault("unfollowed_journals", [])
+                inactive[:] = [journal for journal in inactive if journal.get("id") != journal_id]
+                inactive.append({**metadata, **removed, "config_entry": entry, "unfollowed_at": iso_now()})
             else:
                 retained.append(entry)
         config["categories"][group] = retained
     if not removed:
-        raise ValueError("未找到要删除的期刊")
+        raise ValueError("The journal to remove was not found.")
     config["config_updated_at"] = iso_now()
     write_json(CONFIG_PATH, config)
     remove_journal_from_filter(journal_id)
@@ -239,17 +265,23 @@ def filter_journal_ids() -> list[str]:
     return list(dict.fromkeys(value for value in values if isinstance(value, str)))
 
 
-def update_filter_config(journal_ids: Any, valid_ids: set[str]) -> dict[str, Any]:
+def update_filter_config(journal_ids: Any, valid_ids: set[str], prompt: Any = None) -> dict[str, Any]:
     if not isinstance(journal_ids, list) or any(not isinstance(item, str) for item in journal_ids):
-        raise ValueError("过滤期刊必须是字符串数组")
+        raise ValueError("Filter journals must be an array of journal IDs.")
     selected = list(dict.fromkeys(journal_ids))
     unknown = sorted(set(selected) - valid_ids)
     if unknown:
-        raise ValueError("过滤列表包含未知期刊：" + ", ".join(unknown))
+        raise ValueError("The filter contains unknown journals: " + ", ".join(unknown))
+    existing = read_json(DATA_DIR / "filter-config.json", {})
+    if prompt is None:
+        prompt = existing.get("prompt", "")
+    if not isinstance(prompt, str) or len(prompt) > 8000:
+        raise ValueError("Filter rules must be text, up to 8,000 characters.")
     payload = {
         "updated_at": iso_now(),
         "journal_ids": selected,
         "rule_version": FILTER_RULE_VERSION,
+        "prompt": prompt.strip(),
     }
     write_json(DATA_DIR / "filter-config.json", payload)
     return payload
@@ -262,6 +294,7 @@ def set_filter_journal(journal_id: str, enabled: bool) -> dict[str, Any]:
     if not enabled:
         selected = [value for value in selected if value != journal_id]
     payload = {
+        **read_json(DATA_DIR / "filter-config.json", {}),
         "updated_at": iso_now(),
         "journal_ids": selected,
         "rule_version": FILTER_RULE_VERSION,
@@ -302,20 +335,6 @@ def remove_journal_data(journal_id: str) -> list[str]:
             payload["generated_at"] = iso_now()
             write_json(path, payload)
 
-    supplements_path = DATA_DIR / "supplements.json"
-    supplements = read_json(supplements_path, {})
-    for bucket in ("late_additions", "date_pending"):
-        retained = []
-        for article in supplements.get(bucket, []):
-            if article.get("journal_id") == journal_id:
-                if article.get("id"):
-                    removed_article_ids.append(article["id"])
-            else:
-                retained.append(article)
-        supplements[bucket] = retained
-    supplements["updated_at"] = iso_now()
-    write_json(supplements_path, supplements)
-
     statuses_path = DATA_DIR / "collection-status.json"
     statuses = read_json(statuses_path, {})
     statuses.pop(journal_id, None)
@@ -346,11 +365,8 @@ def refresh_manifest() -> None:
     manifest_path = DATA_DIR / "manifest.json"
     manifest = read_json(manifest_path, {})
     journals = read_json(DATA_DIR / "journals.json", {}).get("journals", [])
-    supplements = read_json(DATA_DIR / "supplements.json", {})
     statuses = read_json(DATA_DIR / "collection-status.json", {})
     manifest["journal_count"] = len(journals)
-    manifest["late_addition_count"] = len(supplements.get("late_additions", []))
-    manifest["date_pending_count"] = len(supplements.get("date_pending", []))
     manifest["available_dates"] = sorted(
         path.stem for path in (DATA_DIR / "days").glob("????-??-??.json")
     )

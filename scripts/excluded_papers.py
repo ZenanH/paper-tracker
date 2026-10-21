@@ -4,7 +4,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from common import article_key, iso_now, read_json, retention_start, write_json
+from common import article_key, ensure_publication_date, iso_now, now_beijing, read_json, retention_start, write_json
 
 
 def excluded_path(data_dir: Path) -> Path:
@@ -85,26 +85,16 @@ def _clean_article(record: dict[str, Any]) -> dict[str, Any]:
 
 def restore_excluded_records(data_dir: Path, filter_ids: Any) -> dict[str, Any]:
     if not isinstance(filter_ids, list) or any(not isinstance(item, str) for item in filter_ids):
-        raise ValueError("恢复记录必须是字符串数组")
+        raise ValueError("Restore IDs must be an array of strings.")
     selected = list(dict.fromkeys(filter_ids))
     payload = load_excluded(data_dir)
     entries = payload["entries"]
-    manifest = read_json(data_dir / "manifest.json", {})
-    try:
-        window_start = date.fromisoformat(manifest["retention"]["start"])
-        window_end = date.fromisoformat(manifest["retention"]["end"])
-    except (KeyError, TypeError, ValueError) as exc:
-        raise ValueError("当前数据保留窗口无效，无法恢复") from exc
+    today = now_beijing().date()
+    window_start = retention_start(today)
+    window_end = today
     journal_ids = {
         journal["id"]
         for journal in read_json(data_dir / "journals.json", {}).get("journals", [])
-    }
-    supplements_path = data_dir / "supplements.json"
-    supplements = read_json(
-        supplements_path, {"late_additions": [], "date_pending": []}
-    )
-    pending = {
-        article_key(item): item for item in supplements.get("date_pending", [])
     }
     restored = []
     skipped = []
@@ -115,20 +105,17 @@ def restore_excluded_records(data_dir: Path, filter_ids: Any) -> dict[str, Any]:
         if not isinstance(record, dict) or record.get("journal_id") not in journal_ids:
             skipped.append(filter_id)
             continue
-        article = _clean_article(record)
+        article = ensure_publication_date(_clean_article(record), today)
         published = article.get("published_date")
-        if published:
-            try:
-                published_date = date.fromisoformat(published)
-            except (TypeError, ValueError):
-                skipped.append(filter_id)
-                continue
-            if not window_start <= published_date <= window_end:
-                skipped.append(filter_id)
-                continue
-            changed_days.setdefault(published, {})[article_key(article)] = article
-        else:
-            pending[article_key(article)] = {**article, "supplement_type": "date_pending"}
+        try:
+            published_date = date.fromisoformat(published)
+        except (TypeError, ValueError):
+            skipped.append(filter_id)
+            continue
+        if not window_start <= published_date <= window_end:
+            skipped.append(filter_id)
+            continue
+        changed_days.setdefault(published, {})[article_key(article)] = article
         restored.append(filter_id)
 
     for day, additions in changed_days.items():
@@ -152,13 +139,6 @@ def restore_excluded_records(data_dir: Path, filter_ids: Any) -> dict[str, Any]:
         write_json(path, current)
 
     if restored:
-        supplements["date_pending"] = sorted(
-            pending.values(),
-            key=lambda item: item.get("first_discovered_at", ""),
-            reverse=True,
-        )
-        supplements["updated_at"] = iso_now()
-        write_json(supplements_path, supplements)
         for filter_id in restored:
             entries.pop(filter_id, None)
         payload["updated_at"] = iso_now()

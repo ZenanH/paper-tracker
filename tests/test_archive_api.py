@@ -14,6 +14,29 @@ SPEC.loader.exec_module(archive_api)
 
 
 class ArchiveApiTests(unittest.TestCase):
+    def test_unified_date_policy_normalizes_saved_records_once_without_changing_states(self):
+        self.manifest_file.write_text(json.dumps({"date_policy": "current-month-start", "retention": {"start": "2026-06-18"}}))
+        record = {"id": "saved", "journal_id": "example", "title_en": "Saved paper", "title_zh": "Saved translation"}
+        self.archive_file.write_text(json.dumps({"items": {"saved": record}, "favorites": {"saved": record}, "cleared_items": {}}))
+        with patch.object(archive_api, "now_iso", return_value="2026-09-18T13:00:00+08:00"):
+            state = archive_api.read_pruned_state()
+        self.assertEqual(state["items"]["saved"]["date"], "2026-09-01")
+        self.assertEqual(state["favorites"]["saved"]["title_zh"], "Saved translation")
+        with patch.object(archive_api, "now_iso", return_value="2026-10-18T13:00:00+08:00"):
+            self.assertEqual(archive_api.read_pruned_state()["favorites"]["saved"]["date"], "2026-09-01")
+
+    def test_pending_read_state_expires_by_first_discovery_but_favorite_survives(self):
+        old = {"id": "pending:old", "journal_id": "example", "title_en": "Undated work",
+               "first_seen_at": "2026-05-01T12:00:00+08:00"}
+        recent = {**old, "id": "pending:recent", "first_seen_at": "2026-09-01T12:00:00+08:00"}
+        archive_api.apply_archive({"action": "favorite", "items": [old]})
+        archive_api.apply_archive({"action": "add", "items": [old, recent]})
+        state = archive_api.read_pruned_state()
+        self.assertNotIn(old["id"], state["items"])
+        self.assertIn(recent["id"], state["items"])
+        self.assertIn(old["id"], state["favorites"])
+        self.assertNotIn("date", state["items"][recent["id"]])
+
     def setUp(self):
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary_directory.name)
@@ -152,7 +175,7 @@ class ArchiveApiTests(unittest.TestCase):
         self.assertNotIn(article["id"], state["items"])
         self.assertNotIn(article["id"], state["cleared_items"])
 
-    def test_remove_all_cleans_archive_and_favorite_state(self):
+    def test_destructive_remove_all_action_is_not_supported(self):
         article = {
             "id": "doi:10.1000/delete",
             "journal_id": "example",
@@ -161,9 +184,11 @@ class ArchiveApiTests(unittest.TestCase):
         }
         archive_api.apply_archive({"action": "favorite", "items": [article]})
         archive_api.apply_archive({"action": "add", "items": [article]})
-        state = archive_api.apply_archive({"action": "remove_all", "ids": [article["id"]]})
-        self.assertNotIn(article["id"], state["favorites"])
-        self.assertNotIn(article["id"], state["items"])
+        with self.assertRaisesRegex(ValueError, "action must be"):
+            archive_api.apply_archive({"action": "remove_all", "ids": [article["id"]]})
+        state = archive_api.read_state()
+        self.assertIn(article["id"], state["favorites"])
+        self.assertIn(article["id"], state["items"])
 
 
 if __name__ == "__main__":

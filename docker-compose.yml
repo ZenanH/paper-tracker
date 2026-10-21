@@ -55,6 +55,9 @@ services:
       - PAPER_TRACKER_DATA_DIR=/app/data
       - PAPER_TRACKER_JOURNAL_CONFIG=/app/data/journal-config.json
       - PAPER_TRACKER_LLM_CONFIG=/app/secrets/llm-config.json
+      - PAPER_TRACKER_GIST_CONFIG=/app/secrets/github-gist.json
+      - PAPER_TRACKER_GITHUB_CLIENT_ID=${PAPER_TRACKER_GITHUB_CLIENT_ID:-}
+      - PAPER_TRACKER_ARCHIVE_FILE=/app/archive/archive.json
       - ARCHIVE_API_URL=http://archive-api:8080/api/archive
       - MANAGER_PORT=8090
       - CROSSREF_MAILTO=${CROSSREF_MAILTO:-}
@@ -64,6 +67,7 @@ services:
     volumes:
       - ${PAPER_TRACKER_DATA_DIR:-./data}:/app/data
       - ${PAPER_TRACKER_SECRETS_DIR:-./secrets}:/app/secrets
+      - ${PAPER_TRACKER_ARCHIVE_DIR:-./archive}:/app/archive
     depends_on:
       archive-api:
         condition: service_healthy

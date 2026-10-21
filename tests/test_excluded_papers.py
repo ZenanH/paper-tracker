@@ -2,8 +2,10 @@ import json
 import sys
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
@@ -50,9 +52,6 @@ class ExcludedPaperTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        (root / "supplements.json").write_text(
-            json.dumps({"late_additions": [], "date_pending": []}), encoding="utf-8"
-        )
 
     def test_filtered_record_is_restored_to_original_day(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -71,21 +70,22 @@ class ExcludedPaperTests(unittest.TestCase):
             self.assertNotIn("filter_category", day["articles"][0])
             self.assertEqual(excluded["entries"], {})
 
-    def test_date_pending_record_returns_to_pending_bucket(self):
+    def test_undated_restored_record_uses_current_month_not_stale_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self.prepare(root)
             record = self.article(None)
             excluded_papers.save_excluded_records(root, [record], date(2026, 9, 18))
-            excluded_papers.restore_excluded_records(root, [article_key(record)])
+            with patch.object(
+                excluded_papers,
+                "now_beijing",
+                return_value=datetime(2026, 10, 21, 13, tzinfo=ZoneInfo("Asia/Shanghai")),
+            ):
+                excluded_papers.restore_excluded_records(root, [article_key(record)])
 
-            supplements = json.loads(
-                (root / "supplements.json").read_text(encoding="utf-8")
-            )
-            self.assertEqual(len(supplements["date_pending"]), 1)
-            self.assertEqual(
-                supplements["date_pending"][0]["supplement_type"], "date_pending"
-            )
+            article = json.loads((root / "days" / "2026-10-01.json").read_text())["articles"][0]
+            self.assertEqual(article["published_date"], "2026-10-01")
+            self.assertTrue(article["date_inferred"])
 
 
 if __name__ == "__main__":

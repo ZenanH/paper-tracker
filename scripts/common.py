@@ -48,6 +48,17 @@ def now_beijing() -> datetime:
     return datetime.now(timezone.utc).astimezone(BEIJING)
 
 
+def ensure_publication_date(article: dict[str, Any], reference: date) -> dict[str, Any]:
+    """Persist a month-start fallback once; keep the source metadata intact."""
+    if not article.get("published_date"):
+        article["published_date"] = reference.replace(day=1).isoformat()
+        article["date_inferred"] = True
+        article["date_inference"] = "current-month-start"
+    article.pop("supplement_type", None)
+    article.pop("archived_date", None)
+    return article
+
+
 def iso_now() -> str:
     return now_beijing().isoformat(timespec="seconds")
 

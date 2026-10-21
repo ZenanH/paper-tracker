@@ -111,14 +111,6 @@ def pending_articles(engine: str, retranslate_existing: bool = False) -> list[tu
             needs_upgrade = retranslate_existing and article.get("translation_engine") != engine
             if article.get("title_en") and (needs_translation or needs_upgrade):
                 records.append((path, article))
-    supplements_path = DATA_DIR / "supplements.json"
-    supplements = read_json(supplements_path, {})
-    for bucket in ("late_additions", "date_pending"):
-        for article in supplements.get(bucket, []):
-            needs_translation = article.get("translation_status") != "translated"
-            needs_upgrade = retranslate_existing and article.get("translation_engine") != engine
-            if article.get("title_en") and (needs_translation or needs_upgrade):
-                records.append((supplements_path, article))
     return records
 
 
@@ -222,12 +214,25 @@ def parse_json_value(value: Any) -> Any:
 def extract_translation_payload(
     response: dict[str, Any], function_name: str = "translate_titles"
 ) -> dict[str, Any]:
+    if not isinstance(response, dict):
+        raise TranslationError("Translation API response must be an object")
     choices = response.get("choices")
     if not isinstance(choices, list) or not choices:
         raise TranslationError("Translation API response has no choices")
+    if not isinstance(choices[0], dict):
+        raise TranslationError("Translation API choice must be an object")
     message = (choices[0] or {}).get("message") or {}
-    for tool_call in message.get("tool_calls") or []:
+    if not isinstance(message, dict):
+        raise TranslationError("Translation API message must be an object")
+    tool_calls = message.get("tool_calls") or []
+    if not isinstance(tool_calls, list):
+        raise TranslationError("Translation tool calls must be an array")
+    for tool_call in tool_calls:
+        if not isinstance(tool_call, dict):
+            raise TranslationError("Translation tool call must be an object")
         function = tool_call.get("function") or {}
+        if not isinstance(function, dict):
+            raise TranslationError("Translation tool function must be an object")
         if function.get("name") == function_name:
             payload = parse_json_value(function.get("arguments"))
             if isinstance(payload, dict):
@@ -331,16 +336,8 @@ def persist_records(records: list[tuple[Any, dict[str, Any]]]) -> None:
         by_path.setdefault(path, []).append(article)
     for path, articles in by_path.items():
         payload = read_json(path, {})
-        if path.name == "supplements.json":
-            lookup = {
-                item.get("id"): item
-                for bucket in ("late_additions", "date_pending")
-                for item in payload.get(bucket, [])
-            }
-            payload["updated_at"] = iso_now()
-        else:
-            lookup = {item.get("id"): item for item in payload.get("articles", [])}
-            payload["generated_at"] = iso_now()
+        lookup = {item.get("id"): item for item in payload.get("articles", [])}
+        payload["generated_at"] = iso_now()
         for article in articles:
             if article.get("id") in lookup:
                 lookup[article["id"]].update(article)

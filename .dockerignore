@@ -3,6 +3,7 @@
 archive
 data
 secrets
+.runtime
 tests
 *.md
 docker-compose.yml

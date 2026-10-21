@@ -1,267 +1,330 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="每日论文追踪：按北京时间查看目标期刊的新论文。" />
-    <meta name="theme-color" content="#f7f8f5" />
-    <title>论文追踪</title>
+    <meta name="description" content="Follow journals and read papers from the last three calendar months. Archive what you have read and save your favorites." />
+    <meta name="theme-color" content="#edf1f3" />
+    <title>
+      Paper Tracker
+    </title>
     <script>
-      (() => {
-        try {
-          const stored = localStorage.getItem("paper-tracker-theme");
-          const preference = ["light", "dark", "system"].includes(stored) ? stored : "system";
-          const resolved = preference === "system"
-            ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
-            : preference;
-          document.documentElement.dataset.theme = resolved;
-        } catch (error) {
-          document.documentElement.dataset.theme = "light";
-        }
-      })();
+      try { const t = localStorage.getItem('paper-tracker-theme') || 'system'; document.documentElement.dataset.theme = t === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : (t === 'dark' ? 'dark' : 'light'); } catch { document.documentElement.dataset.theme = 'light'; }
     </script>
-    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg?v=25b680167f" />
-    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png?v=66c050c341" />
-    <link rel="shortcut icon" href="assets/favicon.ico?v=c3cd5d7ef3" />
-    <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=44ad171dcf" />
-    <link rel="mask-icon" href="assets/favicon.svg?v=25b680167f" color="#0f766e" />
-    <link rel="stylesheet" href="assets/styles.css?v=bc86102276" />
-    <script src="assets/vendor/lucide.min.js?v=3411692820" defer></script>
-    <script src="assets/app.js?v=4c8b2e91d6" type="module"></script>
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+    <link rel="stylesheet" href="assets/styles.css?v=4fa78823b1" />
+    <script type="module" src="assets/app.js?v=7a799797d0">
+    </script>
+    <script type="module" src="assets/liquid-glass.js?v=28794e8f9b"></script>
   </head>
   <body>
-    <a class="skip-link" href="#paper-list">跳到论文列表</a>
+    <a class="skip-link" href="#main">
+      Skip to content
+    </a>
     <header class="site-header">
-      <div class="header-inner">
-        <a class="brand" href="./" aria-label="论文追踪首页">
-          <span class="brand-mark" aria-hidden="true"><i data-lucide="library-big"></i></span>
+      <div class="header-inner glass" data-liquid-glass>
+        <a class="brand" href="./">
+          <span class="brand-icon" aria-hidden="true">
+            ▤
+          </span>
           <span>
-            <strong>论文追踪</strong>
-            <small>Daily Paper Tracker</small>
+            Paper Tracker
           </span>
         </a>
-        <nav class="view-tabs" aria-label="页面视图">
-          <button class="view-tab is-active" type="button" data-view="daily">每日论文</button>
-          <button class="view-tab" type="button" data-view="history">
-            历史及补录
-            <span class="tab-count" id="supplement-count" hidden>0</span>
+        <nav class="view-tabs" aria-label="Main navigation">
+          <button type="button" data-view="journals">
+            Journals
+            <span id="journal-count" class="count">
+            </span>
           </button>
-          <button class="view-tab" type="button" data-view="archive">
-            已归档
-            <span class="tab-count" id="archive-count" hidden>0</span>
+          <button type="button" data-view="papers" class="is-active" aria-current="page">
+            New papers
           </button>
-          <button class="view-tab" type="button" data-view="favorites">
-            收藏
-            <span class="tab-count" id="favorite-count" hidden>0</span>
+          <button type="button" data-view="favorites">
+            Favorites
+            <span id="favorite-count" class="count">
+            </span>
           </button>
         </nav>
-        <div class="header-actions">
-          <button class="icon-button" id="settings-button" type="button" title="设置" aria-label="打开设置">
-            <i data-lucide="settings-2"></i>
-          </button>
-        </div>
+        <button class="icon-button" id="settings-button" aria-label="Open settings" title="Settings">
+        </button>
       </div>
     </header>
-
-    <main class="app-shell">
-      <section class="workspace" aria-live="polite">
-        <div class="toolbar" id="daily-toolbar">
-          <div class="toolbar-title">
-            <p class="eyebrow">每日论文</p>
-            <strong id="daily-date">昨日</strong>
-          </div>
-          <div class="toolbar-summary" id="toolbar-summary"></div>
+    <section id="save-status" class="save-status" aria-label="Save progress" hidden>
+      <div class="save-status-inner">
+        <div class="save-heading" role="status" aria-atomic="true">
+          <span class="saving-spinner" aria-hidden="true"></span>
+          <strong id="save-label"></strong>
+          <span id="save-count"></span>
         </div>
-
-        <div class="update-status" id="update-status" role="status" aria-live="polite">
-          <span class="update-dot is-loading" aria-hidden="true"></span>
-          <span>正在读取数据状态</span>
+        <div id="save-progress" class="save-track" role="progressbar" aria-label="Papers confirmed by the server" aria-valuemin="0">
+          <span id="save-fill"></span>
         </div>
-
-        <div class="toolbar" id="history-toolbar" hidden>
-          <div class="date-controls" id="history-date-controls">
-            <button class="icon-button" id="previous-day" type="button" title="前一天" aria-label="前一天">
-              <i data-lucide="chevron-left"></i>
+        <p id="save-detail"></p>
+      </div>
+    </section>
+    <main id="main" class="app-shell" tabindex="-1">
+      <div class="page-heading">
+        <h1 id="page-title" class="sr-only">New papers</h1>
+        <div class="update-status" id="update-status" role="status">Loading…</div>
+        <button class="button" id="run-now">
+          Refresh
+        </button>
+      </div>
+      <section id="journals-view" hidden aria-label="Journals">
+        <div class="follow-panel surface">
+          <label for="journal-name">
+            Follow a journal
+          </label>
+          <form id="journal-search-form" class="search-row">
+            <input id="journal-name" type="search" required minlength="2" maxlength="300" autocomplete="off" enterkeyhint="search" placeholder="English journal name" />
+            <button class="button primary search-action" id="match-journal">
+              Find
             </button>
-            <label class="date-field">
-              <i data-lucide="calendar-days" aria-hidden="true"></i>
-              <span class="sr-only">选择日期</span>
-              <input id="date-picker" type="date" />
-            </label>
-            <button class="icon-button" id="next-day" type="button" title="后一天" aria-label="后一天">
-              <i data-lucide="chevron-right"></i>
-            </button>
-            <button class="text-button" id="return-yesterday" type="button">返回昨日</button>
-          </div>
-          <div class="segmented-control" role="tablist" aria-label="历史与补录">
-            <button class="is-active" type="button" role="tab" data-mode="history">历史</button>
-            <button type="button" role="tab" data-mode="supplements">补录</button>
-          </div>
-        </div>
-
-        <div class="archive-toolbar" id="archive-toolbar" hidden>
-          <div class="date-controls">
-            <button class="icon-button" id="archive-previous" type="button" title="前一天" aria-label="前一天">
-              <i data-lucide="chevron-left"></i>
-            </button>
-            <label class="date-field">
-              <i data-lucide="calendar-days" aria-hidden="true"></i>
-              <span class="sr-only">选择日期</span>
-              <input id="archive-date-picker" type="date" />
-            </label>
-            <button class="icon-button" id="archive-next" type="button" title="后一天" aria-label="后一天">
-              <i data-lucide="chevron-right"></i>
-            </button>
-            <button class="text-button" id="archive-yesterday" type="button">返回昨日</button>
-          </div>
-          <div class="archive-actions">
-            <span class="archive-selection" id="archive-selection">未选择</span>
-            <button class="text-button compact-button" id="archive-select-all" type="button">全选</button>
-            <button class="text-button compact-button" id="archive-none" type="button">清除选择</button>
-            <button class="text-button compact-button" id="archive-clear" type="button">清空归档</button>
-            <button class="text-button compact-button is-primary" id="archive-restore" type="button" disabled>恢复所选</button>
+          </form>
+          <div id="journal-match" role="status">
           </div>
         </div>
-
-        <div class="operation-status" id="archive-progress" role="status" aria-live="polite" hidden></div>
-
-        <div class="status-strip" id="status-strip" hidden></div>
-        <div class="content-heading" id="content-heading"></div>
-        <div id="paper-list" class="paper-list" tabindex="-1"></div>
+        <div class="section-heading">
+          <div>
+            <h2>
+              Following
+            </h2>
+            <p id="metrics-version" class="muted">
+            </p>
+          </div>
+          <button class="button" id="update-metrics">
+            Update IF
+          </button>
+        </div>
+        <div id="following-list" class="following-list surface">
+        </div>
       </section>
+      <section id="reading-view" aria-label="Paper reading">
+        <div class="reading-toolbar surface">
+          <div class="reading-filters">
+            <form id="paper-search-form" class="paper-search-form" role="search" aria-label="Search paper titles">
+              <label class="search-field">
+                <span id="search-icon" aria-hidden="true">
+                </span>
+                <span class="sr-only">
+                  Search titles
+                </span>
+                <input id="paper-search" type="search" placeholder="Search titles…" enterkeyhint="search" />
+              </label>
+              <button class="button primary search-action" type="submit" id="search-papers">Search</button>
+            </form>
+          </div>
+        </div>
+        <div id="load-status" class="muted" role="status">
+        </div>
+        <div class="selection-bar glass" id="selection-bar" data-liquid-glass hidden>
+          <span id="selection-count">
+          </span>
+          <div>
+            <button class="button quiet" id="clear-selection">
+              Clear
+            </button>
+            <button class="button" id="bulk-favorite">
+              Favorite
+            </button>
+          </div>
+        </div>
+        <div class="results-heading">
+          <span id="results-summary">
+          </span>
+          <div>
+            <button class="button quiet" id="select-visible">
+              Select page
+            </button>
+          </div>
+        </div>
+        <div id="paper-list" class="paper-list" aria-busy="true">
+        </div>
+        <div class="pagination" id="pagination" hidden>
+          <button class="button" id="previous-page">
+            Previous
+          </button>
+          <span id="page-number">
+          </span>
+          <button class="button" id="next-page">
+            Next
+          </button>
+        </div>
+      </section>
+      <div class="notice" id="notice" role="status" hidden>
+      </div>
     </main>
-
-    <dialog class="settings-dialog" id="settings-dialog" aria-labelledby="settings-title">
+    <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
       <div class="dialog-header">
         <div>
-          <p class="eyebrow">论文追踪</p>
-          <strong id="settings-title">设置</strong>
+          <h2 id="settings-title">
+            Settings
+          </h2>
         </div>
-        <button class="icon-button" id="close-settings" type="button" title="关闭" aria-label="关闭设置">
-          <i data-lucide="x"></i>
+        <button class="icon-button" id="close-settings" aria-label="Close settings">
         </button>
       </div>
       <div class="settings-body">
         <section class="settings-section">
-          <div class="settings-section-heading">
-            <div>
-              <strong>期刊显示</strong>
-              <span id="settings-journal-summary">全部期刊</span>
-            </div>
-            <button class="text-button compact-button" id="restore-journals" type="button">恢复全部</button>
-          </div>
-          <p class="settings-note">仅影响当前浏览器的显示范围，不改变服务端的采集范围。</p>
-          <div id="settings-journal-list" class="settings-journal-list"></div>
-        </section>
-
-        <section class="settings-section">
-          <div class="settings-section-heading">
-            <div>
-              <strong>翻译与过滤模型</strong>
-              <span id="llm-settings-summary">正在读取配置</span>
-            </div>
-            <div class="settings-heading-actions">
-              <button class="text-button compact-button" id="llm-disable" type="button" disabled>停用</button>
-              <button class="text-button compact-button is-primary" id="llm-save" type="button" disabled>保存</button>
-            </div>
-          </div>
-          <p class="settings-note">配置保存在宿主机独立的 secrets 目录，不会写入网页数据或 Git。未配置时仍正常采集论文，但不翻译，也不执行标题过滤。</p>
-          <div class="llm-settings-fields">
-            <label><span>Base URL</span><input id="llm-base-url" type="url" inputmode="url" autocomplete="off" placeholder="https://provider.example/v1" /></label>
-            <label><span>模型</span><input id="llm-model" type="text" autocomplete="off" placeholder="例如 luna" /></label>
-            <label class="llm-key-field"><span>API Key</span><input id="llm-api-key" type="password" autocomplete="new-password" placeholder="输入 API Key" /></label>
-          </div>
-          <div id="llm-settings-status" class="filter-settings-status" role="status"></div>
-        </section>
-
-        <section class="settings-section">
-          <div class="settings-section-heading">
-            <div>
-              <strong>标题过滤</strong>
-              <span id="title-filter-summary">正在读取服务设置</span>
-            </div>
-            <button class="text-button compact-button is-primary" id="title-filter-save" type="button" disabled>保存</button>
-          </div>
-          <p class="settings-note">仅勾选的期刊会在新论文入库前调用 Luna，过滤高置信度的医学、生物、化学和文学/人文标题。生物力学始终保留；判断不确定或接口失败时也会保留。</p>
-          <div id="title-filter-status" class="filter-settings-status" role="status"></div>
-          <div id="title-filter-list" class="settings-journal-list"></div>
-        </section>
-
-        <section class="settings-section">
-          <div class="settings-section-heading">
-            <div>
-              <strong>过滤记录</strong>
-              <span id="excluded-paper-summary">没有被过滤的论文</span>
-            </div>
-            <button class="text-button compact-button is-primary" id="excluded-paper-restore" type="button" disabled>恢复所选</button>
-          </div>
-          <p class="settings-note">保留最近三个自然月被过滤论文的完整信息。恢复后论文会回到原发表日期或日期待核实列表，并进入翻译流程。</p>
-          <div id="excluded-paper-status" class="filter-settings-status" role="status"></div>
-          <div id="excluded-paper-list" class="excluded-paper-list"></div>
-        </section>
-
-        <section class="settings-section">
-          <div class="settings-section-heading">
-            <div>
-              <strong>期刊管理</strong>
-              <span id="journal-admin-summary">正在读取服务状态</span>
-            </div>
-            <button class="icon-button settings-run-button" id="journal-run-now" type="button" title="立即运行日更" aria-label="立即运行日更">
-              <i data-lucide="play"></i>
+          <h3>
+            Appearance
+          </h3>
+          <div class="theme-options" role="group" aria-label="Theme">
+            <button data-theme="system">
+              System
+            </button>
+            <button data-theme="light">
+              Light
+            </button>
+            <button data-theme="dark">
+              Dark
             </button>
           </div>
-          <p class="settings-note">输入期刊英文全名。系统会匹配镜像内的 2025 分区快照，回填三个月论文、核验影响因子并翻译标题。</p>
-          <div class="journal-add-row">
-            <label class="journal-name-field">
-              <span class="sr-only">期刊英文名称</span>
-              <input id="journal-name-input" type="text" autocomplete="off" placeholder="例如 Journal of Computational Physics" />
-            </label>
-            <button class="text-button is-primary" id="journal-add-run" type="button">添加并运行</button>
-          </div>
-          <label class="journal-add-filter-option">
-            <input id="journal-add-filter" type="checkbox" />
-            <span>首次回填前启用标题过滤</span>
-          </label>
-          <div class="journal-admin-status" id="journal-admin-status" role="status"></div>
-          <div class="journal-admin-list" id="journal-admin-list"></div>
         </section>
-
         <section class="settings-section">
-          <div class="settings-section-heading">
-            <div>
-              <strong>主题</strong>
-              <span>保存到当前浏览器</span>
+          <h3>
+            Model
+          </h3>
+          <p id="llm-summary" class="muted">
+            Loading settings…
+          </p>
+          <form id="llm-form">
+            <div class="field">
+              <label for="llm-base-url">
+                Base URL
+              </label>
+              <input id="llm-base-url" type="url" required placeholder="https://provider.example/v1" autocomplete="off" />
             </div>
-          </div>
-          <div class="segmented-control theme-control" role="group" aria-label="选择主题">
-            <button type="button" data-theme-option="system">跟随系统</button>
-            <button type="button" data-theme-option="light">浅色</button>
-            <button type="button" data-theme-option="dark">深色</button>
-          </div>
+            <div class="field">
+              <label for="llm-model">
+                Model name
+              </label>
+              <input id="llm-model" required placeholder="Model name" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label for="llm-api-key">
+                API Key
+              </label>
+              <input id="llm-api-key" type="password" placeholder="Enter API key" autocomplete="new-password" />
+            </div>
+            <div class="form-actions">
+              <button class="button quiet" type="button" id="llm-disable">
+                Disable
+              </button>
+              <button class="button" type="button" id="llm-verify">
+                Test connection
+              </button>
+              <button class="button primary" id="llm-save">
+                Save
+              </button>
+            </div>
+          </form>
+          <p id="llm-status" class="inline-status" role="status">
+          </p>
         </section>
-
         <section class="settings-section">
-          <div class="settings-section-heading">
-            <div>
-              <strong>归档管理</strong>
-              <span id="settings-archive-summary">没有已清空的归档</span>
-            </div>
-            <button class="text-button compact-button" id="settings-restore-archive" type="button" disabled>恢复归档</button>
+          <div class="section-heading">
+            <h3>
+              AI title filter
+            </h3>
+            <button class="button" id="edit-rules">
+              Edit rules
+            </button>
           </div>
-          <p class="settings-note">“清空归档”只隐藏已确认看完的论文，仍保留已读状态。恢复后会重新显示在“已归档”中。</p>
+          <p class="muted">
+            Newly collected papers only.
+          </p>
+          <p id="rules-summary" class="rules-summary">
+          </p>
+          <details>
+            <summary id="filter-summary">
+              Choose journals to filter
+            </summary>
+            <div id="filter-journal-list" class="settings-journal-list">
+            </div>
+          </details>
+          <div class="form-actions">
+            <button class="button primary" id="save-filter">
+              Save
+            </button>
+          </div>
+          <p id="filter-status" class="inline-status" role="status">
+          </p>
+        </section>
+        <section class="settings-section" aria-labelledby="gist-heading">
+          <h3 id="gist-heading">Gist backup</h3>
+          <p id="gist-summary" class="muted">Not connected</p>
+          <details id="github-app-settings">
+            <summary>GitHub OAuth app</summary>
+            <div class="field">
+              <label for="github-client-id">Client ID</label>
+              <input id="github-client-id" autocomplete="off" spellcheck="false" placeholder="OAuth app Client ID" />
+            </div>
+          </details>
+          <div class="form-actions">
+            <button class="button" id="github-connect" type="button">Connect GitHub</button>
+            <button class="button quiet" id="github-disconnect" type="button" hidden>Disconnect</button>
+            <button class="button primary" id="gist-export" type="button">Export to Gist</button>
+          </div>
+          <div id="github-authorization" class="gist-authorization" hidden>
+            <p>Enter this code on GitHub:</p>
+            <code id="github-user-code"></code>
+            <a class="button" href="https://github.com/login/device" target="_blank" rel="noopener noreferrer">Open GitHub</a>
+            <p class="muted" id="github-auth-status" role="status"></p>
+          </div>
+          <form id="gist-import-form">
+            <div class="field">
+              <label for="gist-url">Gist URL or ID</label>
+              <input id="gist-url" autocomplete="off" spellcheck="false" placeholder="https://gist.github.com/…" required />
+            </div>
+            <div class="form-actions"><button class="button" id="gist-preview" type="submit">Preview import</button></div>
+          </form>
+          <div id="gist-import-preview" class="gist-preview" hidden>
+            <p id="gist-preview-counts"></p>
+            <p class="muted">Replaces your current data. A local recovery copy will be kept.</p>
+            <button class="button primary" id="gist-import" type="button">Import</button>
+          </div>
+          <p id="gist-status" class="inline-status" role="status"></p>
+          <a id="gist-result-link" target="_blank" rel="noopener noreferrer" hidden>Open backup on GitHub</a>
+          <p class="muted">Anyone with the Gist link can read it. API settings are excluded.</p>
         </section>
       </div>
     </dialog>
-
-    <footer class="site-footer">
-      <p>论文日期按来源的首次在线发表日期归档，时区为 Asia/Shanghai。</p>
-      <p id="source-note"></p>
-    </footer>
-
-    <template id="loading-template">
-      <div class="loading-state" aria-label="正在加载">
-        <span></span><span></span><span></span>
-      </div>
-    </template>
+    <dialog id="rules-dialog" class="rules-dialog" aria-labelledby="rules-title">
+      <form method="dialog">
+        <div class="dialog-header">
+          <h2 id="rules-title">
+            Filter rules
+          </h2>
+          <button class="icon-button" value="cancel" aria-label="Close rule editor">
+            ×
+          </button>
+        </div>
+        <div class="settings-body">
+          <label for="filter-prompt">
+            Topics to keep or exclude
+          </label>
+          <textarea id="filter-prompt" rows="9" maxlength="8000" placeholder="Keep mechanics and engineering; exclude clinical medicine.">
+          </textarea>
+          <p class="muted">
+            Blank uses defaults. Apply, then save.
+          </p>
+          <details class="filter-help">
+            <summary>Default rules</summary>
+            <p>Exclude medicine, biology, chemistry, and humanities at 90% confidence or above. Keep biomechanics, uncertain results, and papers when the model is unavailable. Existing papers stay unchanged.</p>
+          </details>
+          <div class="form-actions">
+            <button class="button" value="cancel">
+              Cancel
+            </button>
+            <button class="button primary" id="apply-rules" value="apply">
+              Apply
+            </button>
+          </div>
+        </div>
+      </form>
+    </dialog>
   </body>
 </html>

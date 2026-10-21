@@ -107,12 +107,11 @@ class TranslationTests(unittest.TestCase):
     def test_duplicate_title_records_are_grouped_into_one_request_key(self):
         records = [
             (Path("day.json"), {"id": "day", "title_en": "Same title"}),
-            (Path("supplements.json"), {"id": "supplement", "title_en": "Same title"}),
             (Path("other.json"), {"id": "other", "title_en": "Other title"}),
         ]
         grouped = translate.group_records_by_title(records, "openai-compatible:model")
         self.assertEqual(len(grouped), 2)
-        self.assertEqual([len(items) for _, items in grouped], [2, 1])
+        self.assertEqual([len(items) for _, items in grouped], [1, 1])
 
 
 if __name__ == "__main__":

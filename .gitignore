@@ -10,3 +10,6 @@ __pycache__/
 data/
 archive/
 secrets/
+
+# Local deployment paths and runtime configuration.
+.runtime/

@@ -3,9 +3,10 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
@@ -21,6 +22,20 @@ JOURNAL = {"id": "example", "url": "https://example.com"}
 
 
 class PipelineTests(unittest.TestCase):
+    def test_crossref_pagination_stops_on_short_page_without_truncating_full_page(self):
+        client = CrossrefClient(delay=0)
+        pages = [{"items": [{"DOI": str(i)} for i in range(500)], "next-cursor": "page-two"},
+                 {"items": [{"DOI": "last"}], "next-cursor": "unused"}]
+        with patch.object(client, "get", side_effect=pages) as get:
+            records = client.works("1234-5678", ["type:journal-article"])
+        self.assertEqual(len(records), 501)
+        self.assertEqual(get.call_count, 2)
+        self.assertEqual(get.call_args_list[1].args[1]["cursor"], "page-two")
+        self.assertEqual(get.call_args_list[1].args[1]["filter"], "type:journal-article")
+        with patch.object(client, "get", return_value={"items": [{"DOI": "one"}], "next-cursor": "unused"}) as get:
+            self.assertEqual(len(client.works("1234-5678", [])), 1)
+            get.assert_called_once()
+
     def article(self, published_date=None):
         return {
             "id": "10.1000/example",
@@ -64,7 +79,7 @@ class PipelineTests(unittest.TestCase):
         )
         return days
 
-    def run_collection(self, root, items, target=date(2026, 9, 18)):
+    def run_collection(self, root, items, target=date(2026, 9, 18), mode="daily"):
         days = root / "days"
         with patch.object(collect, "DATA_DIR", root), patch.object(
             collect, "DAYS_DIR", days
@@ -72,8 +87,25 @@ class PipelineTests(unittest.TestCase):
             collect, "iter_day_files", side_effect=lambda: sorted(days.glob("????-??-??.json"))
         ), patch.object(
             collect, "gather_for_journal", return_value=(items, "1234-5678")
+        ), patch.object(
+            collect, "iso_now", return_value=f"{target.isoformat()}T13:00:00+08:00"
+        ), patch.object(
+            collect, "now_beijing", return_value=datetime.combine(target, datetime.min.time(), ZoneInfo("Asia/Shanghai"))
         ):
-            collect.collect("daily", target)
+            collect.collect(mode, target)
+
+    def test_initial_backfill_assigns_current_month_start_to_partial_date(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.prepare_collection_data(root)
+            (root / "collection-status.json").write_text('{}')
+            item = {"DOI": "10.1000/month", "title": ["Real title with a month-only date"], "published": {"date-parts": [[2026, 9]]}, "type": "journal-article"}
+            self.run_collection(root, [item], mode="backfill")
+            article = json.loads((root / "days" / "2026-09-01.json").read_text())["articles"][0]
+            self.assertEqual(article["published_date"], "2026-09-01")
+            self.assertTrue(article["date_inferred"])
+            self.assertEqual(article["date_precision"], "month")
+            self.assertEqual(article["raw_publication_date"], item["published"])
 
     def test_online_date_wins(self):
         item = {
@@ -81,6 +113,52 @@ class PipelineTests(unittest.TestCase):
             "published-print": {"date-parts": [[2027, 1, 1]]},
         }
         self.assertEqual(publication_date(item), ("2026-09-15", "date", "published-online"))
+
+    def test_partial_online_date_is_not_replaced_by_future_print_issue(self):
+        item = {"title": ["Online-first paper"], "published-online": {"date-parts": [[2026, 9]]}, "published-print": {"date-parts": [[2027, 1, 12]]}}
+        self.assertEqual(publication_date(item), (None, "month", "published-online"))
+        self.assertEqual(article_from_item(item, JOURNAL, "2026-09-18T13:00:00+08:00")["published_date"], "2026-09-01")
+
+    def test_unknown_date_uses_beijing_current_month_not_source_month(self):
+        for value in ({"date-parts": [[2020, 5]]}, {"date-parts": [[2020]]}, None):
+            item = {"DOI": "10.1000/unknown", "title": ["Unknown date"], "published": value}
+            article = article_from_item(item, JOURNAL, "2026-09-30T17:00:00Z")
+            self.assertEqual(article["published_date"], "2026-10-01")
+            self.assertTrue(article["date_inferred"])
+            self.assertEqual(article["raw_publication_date"], value)
+
+    def test_inferred_date_stays_stable_then_moves_to_confirmed_date(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            days = self.prepare_collection_data(root)
+            item = {"DOI": "10.1000/unknown", "title": ["Unknown date"]}
+            self.run_collection(root, [item])
+            self.run_collection(root, [item], target=date(2026, 10, 18))
+            self.assertFalse((days / "2026-10-01.json").exists())
+            prior = json.loads((days / "2026-09-01.json").read_text())["articles"][0]
+            self.assertEqual(prior["first_discovered_at"], "2026-09-18T13:00:00+08:00")
+            item["published-online"] = {"date-parts": [[2026, 9, 16]]}
+            self.run_collection(root, [item], target=date(2026, 10, 18))
+            self.assertEqual(json.loads((days / "2026-09-01.json").read_text())["articles"], [])
+            confirmed = json.loads((days / "2026-09-16.json").read_text())["articles"][0]
+            self.assertFalse(confirmed.get("date_inferred", False))
+            self.assertEqual(confirmed["first_discovered_at"], prior["first_discovered_at"])
+
+    def test_legacy_migration_preserves_translation_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            days = self.prepare_collection_data(root)
+            record = {**self.article(), "title_zh": "Saved translation", "translation_status": "translated"}
+            (root / "supplements.json").write_text(json.dumps({"date_pending": [record], "late_additions": []}))
+            self.run_collection(root, [])
+            article = json.loads((days / "2026-09-01.json").read_text())["articles"][0]
+            self.assertEqual(article["id"], record["id"])
+            self.assertEqual(article["title_zh"], record["title_zh"])
+            legacy = json.loads((root / "supplements.json").read_text(encoding="utf-8"))
+            self.assertEqual(legacy["late_additions"], [])
+            self.assertEqual(legacy["date_pending"], [])
+            self.run_collection(root, [])
+            self.assertEqual(len(json.loads((days / "2026-09-01.json").read_text())["articles"]), 1)
 
     def test_article_cleaning_and_direct_link(self):
         item = {
@@ -103,7 +181,23 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(parse_metric("Journal Impact Factor (2025): 7.6"), (7.6, 2025))
         self.assertEqual(parse_metric("CiteScore: 22.1"), None)
 
-    def test_daily_primary_query_is_exactly_one_publication_day(self):
+    def test_metric_reads_split_html_and_excludes_five_year_values(self):
+        self.assertEqual(parse_metric('<dt>Journal Impact Factor</dt><dd>4.5 (2025)</dd><dt>5-year Journal Impact Factor</dt><dd>4.1 (2025)</dd>'), (4.5, 2025))
+        self.assertIsNone(parse_metric('5-year Journal Impact Factor: 8.2 (2025)'))
+        self.assertEqual(parse_metric('Journal Impact Factor: 4.5 Copyright 2026'), (4.5, None))
+        self.assertIsNone(parse_metric('Journal Impact Factor: 4.5 (2025) Journal Impact Factor: 9.1 (2025)'))
+        self.assertEqual(parse_metric('4.5 Impact Factor'), (4.5, None))
+
+    def test_nature_metrics_use_dedicated_page_and_do_not_downgrade_year(self):
+        journal = {"url": "https://www.nature.com/ncomms/", "impact_factor": {"value": 18.1, "year": 2025}}
+        with patch.object(update_metrics, "fetch", return_value="Journal Impact Factor: 15.7 (2024)") as fetch:
+            update_metrics.update_journal(journal)
+        fetch.assert_called_once_with("https://www.nature.com/ncomms/journal-impact")
+        self.assertEqual(journal["impact_factor"]["year"], 2025)
+        self.assertEqual(journal["impact_factor"]["value"], 18.1)
+        self.assertEqual(journal["impact_factor"]["status"], "outdated_source")
+
+    def test_periodic_query_covers_full_window_and_indexes_without_date_filter(self):
         calls = []
 
         class FakeClient:
@@ -114,11 +208,13 @@ class PipelineTests(unittest.TestCase):
         gather_for_journal(
             FakeClient(), {"issns": ["1234-5678"]}, "daily", __import__("datetime").date(2026, 9, 16)
         )
-        self.assertIn("from-pub-date:2026-09-15", calls[0])
+        self.assertIn("from-pub-date:2026-06-15", calls[0])
         self.assertIn("until-pub-date:2026-09-16", calls[0])
         self.assertNotIn("from-index-date", calls[0])
+        self.assertIn("from-index-date:2026-06-16", calls[1])
+        self.assertFalse(any("pub-date" in value for value in calls[1]))
 
-    def test_initial_daily_run_skips_supplement_query(self):
+    def test_initial_daily_run_also_finds_undated_indexed_records(self):
         calls = []
 
         class FakeClient:
@@ -131,9 +227,21 @@ class PipelineTests(unittest.TestCase):
             {"issns": ["1234-5678"]},
             "daily",
             __import__("datetime").date(2026, 9, 16),
-            include_supplements=False,
         )
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls), 2)
+
+    def test_index_watermark_uses_last_success_and_overlaps_one_day(self):
+        calls = []
+        class Client:
+            def works(self, issn, filters):
+                calls.append(filters)
+                return []
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "collection-status.json").write_text(json.dumps({"example": {"status": "failed", "checked_at": "2026-09-18T13:00:00+08:00", "last_success_at": "2026-09-16T13:00:00+08:00"}}))
+            with patch.object(collect, "DATA_DIR", root):
+                gather_for_journal(Client(), {"id": "example", "issns": ["1234-5678"]}, "daily", date(2026, 9, 19))
+        self.assertIn("from-index-date:2026-09-15", calls[1])
 
     def test_multiple_issns_are_merged(self):
         class FakeClient:
@@ -184,9 +292,9 @@ class PipelineTests(unittest.TestCase):
             ):
                 removed = collect.prune_translation_cache()
 
-            self.assertEqual(removed, 1)
+            self.assertEqual(removed, 2)
             cache = json.loads((root / "translations.json").read_text(encoding="utf-8"))
-            self.assertEqual(set(cache["entries"]), {"day", "supplement"})
+            self.assertEqual(set(cache["entries"]), {"day"})
 
     def test_sync_cas_preserves_verified_metric_state(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -338,11 +446,8 @@ class PipelineTests(unittest.TestCase):
                 self.run_collection(root, [item])
 
             day = json.loads((root / "days" / "2026-09-18.json").read_text(encoding="utf-8"))
-            supplements = json.loads((root / "supplements.json").read_text(encoding="utf-8"))
             translations = json.loads((root / "translations.json").read_text(encoding="utf-8"))
             self.assertEqual(day["articles"], [])
-            self.assertEqual(supplements["late_additions"], [])
-            self.assertEqual(supplements["date_pending"], [])
             self.assertEqual(translations["entries"], {})
             self.assertEqual(day["journal_status"]["example"]["title_filter"]["excluded"], 1)
             excluded = json.loads(

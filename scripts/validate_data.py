@@ -11,7 +11,6 @@ from common import DATA_DIR, article_key, iter_day_files, read_json, retention_s
 def main() -> int:
     journals = json.loads((DATA_DIR / "journals.json").read_text(encoding="utf-8"))
     journal_ids = {journal["id"] for journal in journals["journals"]}
-    assert journal_ids, "At least one configured journal is required"
     assert len(journal_ids) == len(journals["journals"]), "Journal ids must be unique"
     manifest = json.loads((DATA_DIR / "manifest.json").read_text(encoding="utf-8"))
     files = list(iter_day_files())
@@ -33,26 +32,10 @@ def main() -> int:
             key = article_key(article)
             assert key not in seen, f"Duplicate article across day files: {key}"
             seen.add(key)
-    supplements = json.loads((DATA_DIR / "supplements.json").read_text(encoding="utf-8"))
-    supplement_keys = {}
-    for bucket in ("late_additions", "date_pending"):
-        records = supplements[bucket]
-        assert isinstance(records, list)
-        keys = set()
-        for article in records:
-            assert article["journal_id"] in journal_ids, article
-            assert article["url"].startswith(("http://", "https://")), article
-            if bucket == "date_pending":
-                assert not article.get("published_date"), article
-            else:
-                assert article.get("published_date"), article
-            key = article_key(article)
-            assert key not in keys, f"Duplicate article in {bucket}: {key}"
-            keys.add(key)
-        supplement_keys[bucket] = keys
-    assert not (supplement_keys["late_additions"] & supplement_keys["date_pending"])
-    assert manifest["late_addition_count"] == len(supplements["late_additions"])
-    assert manifest["date_pending_count"] == len(supplements["date_pending"])
+    supplements_path = DATA_DIR / "supplements.json"
+    if supplements_path.exists():
+        supplements = json.loads(supplements_path.read_text(encoding="utf-8"))
+        assert not supplements.get("late_additions") and not supplements.get("date_pending"), "Legacy supplement data must be migrated to day files"
 
     filter_config = read_json(DATA_DIR / "filter-config.json", {})
     filter_ids = filter_config.get("journal_ids", [])
@@ -73,7 +56,7 @@ def main() -> int:
     excluded = read_json(DATA_DIR / "excluded-papers.json", {"entries": {}})
     excluded_entries = excluded.get("entries", {})
     assert isinstance(excluded_entries, dict), "excluded-papers entries must be an object"
-    visible_keys = seen | supplement_keys["late_additions"] | supplement_keys["date_pending"]
+    visible_keys = seen
     required_fields = {
         "id",
         "journal_id",

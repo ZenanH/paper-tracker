@@ -44,7 +44,7 @@ def main(source_file: Path | None = None) -> int:
         previous = {}
     previous_metrics = {
         journal.get("id"): journal.get("impact_factor")
-        for journal in previous.get("journals", [])
+        for journal in [*previous.get("journals", []), *previous.get("unfollowed_journals", []), *config.get("unfollowed_journals", [])]
         if isinstance(journal, dict) and isinstance(journal.get("impact_factor"), dict)
     }
     journals = []
@@ -105,6 +105,7 @@ def main(source_file: Path | None = None) -> int:
             "sha256": file_sha256(content),
         },
         "journals": journals,
+        "unfollowed_journals": config.get("unfollowed_journals", []),
     }
     if previous.get("metrics_checked_at"):
         payload["metrics_checked_at"] = previous["metrics_checked_at"]

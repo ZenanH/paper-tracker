@@ -14,6 +14,23 @@ import journal_manager
 
 
 class JournalManagementTests(unittest.TestCase):
+    def test_filter_prompt_survives_journal_changes_and_validates_size(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(journal_config, "DATA_DIR", Path(directory)):
+            journal_config.update_filter_config(["one"], {"one"}, "保留力学")
+            journal_config.set_filter_journal("two", True)
+            payload = json.loads((Path(directory) / "filter-config.json").read_text())
+            self.assertEqual(payload["prompt"], "保留力学")
+            journal_config.remove_journal_from_filter("one")
+            payload = journal_config.update_filter_config(["two"], {"two"})
+            self.assertEqual(payload["prompt"], "保留力学")
+            with self.assertRaises(ValueError):
+                journal_config.update_filter_config([], set(), "x" * 8001)
+
+    def test_snapshot_matching_rejects_ambiguous_names_and_does_not_mutate(self):
+        self.assertEqual(journal_config.snapshot_row_for_name("Nature")["Journal"], "NATURE")
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
+            journal_config.snapshot_row_for_name("Journal")
+
     def tearDown(self):
         journal_manager.JOB.clear()
         journal_manager.JOB.update(journal_manager.JOB_DEFAULTS)
@@ -97,7 +114,7 @@ class JournalManagementTests(unittest.TestCase):
                 )
                 self.assertEqual(journal_config.filter_journal_ids(), [])
 
-    def test_remove_journal_data_cleans_days_supplements_and_status(self):
+    def test_remove_journal_data_cleans_days_and_status(self):
         with tempfile.TemporaryDirectory() as directory:
             data_dir = Path(directory)
             days_dir = data_dir / "days"
@@ -110,15 +127,6 @@ class JournalManagementTests(unittest.TestCase):
                             {"id": "remove-day", "journal_id": "remove-me"},
                             {"id": "keep-day", "journal_id": "keep-me"},
                         ]
-                    }
-                ),
-                encoding="utf-8",
-            )
-            (data_dir / "supplements.json").write_text(
-                json.dumps(
-                    {
-                        "late_additions": [{"id": "remove-late", "journal_id": "remove-me"}],
-                        "date_pending": [{"id": "keep-pending", "journal_id": "keep-me"}],
                     }
                 ),
                 encoding="utf-8",
@@ -158,13 +166,9 @@ class JournalManagementTests(unittest.TestCase):
             with patch.object(journal_config, "DATA_DIR", data_dir):
                 removed_ids = journal_config.remove_journal_data("remove-me")
 
-            self.assertEqual(set(removed_ids), {"remove-day", "remove-late"})
+            self.assertEqual(set(removed_ids), {"remove-day"})
             day = json.loads(day_path.read_text(encoding="utf-8"))
             self.assertEqual([item["id"] for item in day["articles"]], ["keep-day"])
-            supplements = json.loads(
-                (data_dir / "supplements.json").read_text(encoding="utf-8")
-            )
-            self.assertEqual(supplements["late_additions"], [])
             statuses = json.loads(
                 (data_dir / "collection-status.json").read_text(encoding="utf-8")
             )
@@ -179,7 +183,7 @@ class JournalManagementTests(unittest.TestCase):
             )
             self.assertEqual(set(excluded["entries"]), {"keep-filtered"})
 
-    def test_next_run_is_one_am_beijing(self):
+    def test_next_run_is_every_twelve_hours_beijing(self):
         timezone = ZoneInfo("Asia/Shanghai")
         before = datetime(2026, 9, 19, 0, 30, tzinfo=timezone)
         after = datetime(2026, 9, 19, 1, 30, tzinfo=timezone)
@@ -189,8 +193,9 @@ class JournalManagementTests(unittest.TestCase):
         )
         self.assertEqual(
             journal_manager.next_run(after),
-            datetime(2026, 9, 20, 1, 0, tzinfo=timezone),
+            datetime(2026, 9, 19, 13, 0, tzinfo=timezone),
         )
+        self.assertEqual(journal_manager.next_run(after.replace(hour=13)), datetime(2026, 9, 20, 1, 0, tzinfo=timezone))
 
     def test_add_pipeline_runs_complete_targeted_workflow(self):
         with patch.object(journal_manager, "run_command") as run_command, patch.object(
@@ -272,8 +277,11 @@ class JournalManagementTests(unittest.TestCase):
             path.write_text(json.dumps({"default_date": "2026-09-17"}), encoding="utf-8")
             with patch.object(journal_manager, "DATA_DIR", data_dir):
                 self.assertTrue(journal_manager.daily_catchup_due(now))
-                path.write_text(json.dumps({"default_date": "2026-09-18"}), encoding="utf-8")
+                path.write_text(json.dumps({"default_date": "2026-09-19", "collection_checked_at": "2026-09-19T01:10:00+08:00"}), encoding="utf-8")
                 self.assertFalse(journal_manager.daily_catchup_due(now))
+                self.assertTrue(journal_manager.daily_catchup_due(now.replace(hour=14)))
+                path.write_text(json.dumps({"collection_checked_at": "2026-09-19T05:10:00Z"}), encoding="utf-8")
+                self.assertFalse(journal_manager.daily_catchup_due(now.replace(hour=14)))
 
     def test_weekly_reconciliation_due_uses_persistent_date(self):
         with tempfile.TemporaryDirectory() as directory:

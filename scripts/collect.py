@@ -20,6 +20,7 @@ from common import (
     DAYS_DIR,
     article_key,
     clean_text,
+    ensure_publication_date,
     iso_now,
     iter_day_files,
     normalize_doi,
@@ -92,18 +93,25 @@ class CrossrefClient:
             batch = message.get("items", [])
             items.extend(batch)
             next_cursor = message.get("next-cursor")
-            if not batch or not next_cursor or next_cursor == cursor:
+            # Crossref's documented end condition avoids an extra empty-page
+            # request for every short result set (especially 12-hour updates).
+            if len(batch) < 500 or not next_cursor or next_cursor == cursor:
                 break
             cursor = next_cursor
         return items
 
 
 def publication_date(item: dict[str, Any]) -> tuple[str | None, str, str]:
+    partial = None
     for field in ("published-online", "published", "published-print"):
         value, precision = parse_date_parts(item.get(field))
+        # Online publication remains authoritative even if only its month is
+        # known; a future print-issue date must not hide an online-first paper.
         if value or precision not in {"missing", "invalid"}:
             return value, precision, field
-    return None, "missing", "none"
+        if partial is None and precision != "missing":
+            partial = (None, precision, field)
+    return partial or (None, "missing", "none")
 
 
 def classify_title(title: str) -> str:
@@ -132,12 +140,48 @@ def article_from_item(item: dict[str, Any], journal: dict[str, Any], discovered_
         "published_date": published_date,
         "date_precision": precision,
         "date_source": source,
+        "raw_publication_date": item.get(source),
         "first_discovered_at": discovered_at,
         "last_seen_at": discovered_at,
         "content_type": classify_title(title),
         "crossref_type": item.get("type"),
     }
-    return article
+    reference = datetime.fromisoformat(discovered_at.replace("Z", "+00:00"))
+    if reference.tzinfo is not None:
+        reference = reference.astimezone(BEIJING)
+    return ensure_publication_date(article, reference.date())
+
+
+def migrate_legacy_records(reference: date) -> int:
+    """Move the old supplement buckets into ordinary day files, idempotently."""
+    path = DATA_DIR / "supplements.json"
+    legacy = read_json(path, {})
+    records = [item for bucket in ("late_additions", "date_pending") for item in legacy.get(bucket, [])]
+    if not records:
+        return 0
+    dated = {}
+    for day_path in iter_day_files():
+        for article in read_json(day_path, {}).get("articles", []):
+            dated[article_key(article)] = article
+    additions = {}
+    for record in records:
+        key = article_key(record)
+        article = {**record, **dated.get(key, {})}
+        if not article.get("title_zh") and record.get("title_zh"):
+            article["title_zh"] = record["title_zh"]
+            article["translation_status"] = record.get("translation_status", "translated")
+            article["translation_engine"] = record.get("translation_engine")
+        ensure_publication_date(article, reference)
+        additions.setdefault(article["published_date"], {})[key] = article
+    for day, incoming in additions.items():
+        day_path = DAYS_DIR / f"{day}.json"
+        current = read_json(day_path, {})
+        merged = {article_key(item): item for item in current.get("articles", [])}
+        merged.update(incoming)
+        write_json(day_path, day_payload(day, list(merged.values()), current.get("journal_status", {})))
+    # Empty compatibility file for older maintenance tools; no new records enter it.
+    write_json(path, {"updated_at": iso_now(), "late_additions": [], "date_pending": []})
+    return len(records)
 
 
 def load_existing() -> tuple[dict[str, dict[str, Any]], dict[str, set[str]]]:
@@ -149,12 +193,6 @@ def load_existing() -> tuple[dict[str, dict[str, Any]], dict[str, set[str]]]:
             key = article_key(article)
             articles[key] = article
             locations.setdefault(key, set()).add(path.stem)
-    supplements = read_json(DATA_DIR / "supplements.json", {"late_additions": [], "date_pending": []})
-    for bucket in ("late_additions", "date_pending"):
-        for article in supplements.get(bucket, []):
-            key = article_key(article)
-            articles[key] = article
-            locations.setdefault(key, set()).add(bucket)
     return articles, locations
 
 
@@ -168,19 +206,21 @@ def day_payload(day: str, articles: list[dict[str, Any]], journal_status: dict[s
     }
 
 
-def save_manifest(journals: list[dict[str, Any]], target: date) -> None:
+def save_manifest(journals: list[dict[str, Any]], target: date, collected: bool = True) -> None:
     available = [path.stem for path in iter_day_files()]
-    supplement = read_json(DATA_DIR / "supplements.json", {"late_additions": [], "date_pending": []})
     statuses = read_json(DATA_DIR / "collection-status.json", {})
+    previous = read_json(DATA_DIR / "manifest.json", {})
     payload = {
+        "schema_version": 2,
+        "date_policy": "current-month-start",
+        "update_interval_hours": 12,
+        "collection_checked_at": iso_now() if collected else previous.get("collection_checked_at"),
         "timezone": "Asia/Shanghai",
         "default_date": target.isoformat(),
         "updated_at": iso_now(),
         "retention": {"start": retention_start(target).isoformat(), "end": target.isoformat()},
         "available_dates": available,
         "journal_count": len(journals),
-        "late_addition_count": len(supplement.get("late_additions", [])),
-        "date_pending_count": len(supplement.get("date_pending", [])),
         "collection_summary": {
             "ok": sum(1 for value in statuses.values() if value.get("status") == "ok"),
             "failed": sum(1 for value in statuses.values() if value.get("status") == "failed"),
@@ -194,19 +234,6 @@ def prune(reference: date) -> None:
     for path in iter_day_files():
         if date.fromisoformat(path.stem) < cutoff:
             path.unlink()
-    supplements = read_json(DATA_DIR / "supplements.json", {"late_additions": [], "date_pending": []})
-    supplements["late_additions"] = [
-        item
-        for item in supplements.get("late_additions", [])
-        if item.get("published_date") and date.fromisoformat(item["published_date"]) >= cutoff
-    ]
-    supplements["date_pending"] = [
-        item
-        for item in supplements.get("date_pending", [])
-        if datetime.fromisoformat(item["first_discovered_at"]).date() >= cutoff
-    ]
-    supplements["updated_at"] = iso_now()
-    write_json(DATA_DIR / "supplements.json", supplements)
     prune_translation_cache()
 
 
@@ -225,14 +252,6 @@ def prune_translation_cache() -> int:
             for article in payload.get("articles", [])
             if article.get("title_en")
         )
-    supplements = read_json(DATA_DIR / "supplements.json", {})
-    for bucket in ("late_additions", "date_pending"):
-        active_titles.update(
-            article.get("title_en")
-            for article in supplements.get(bucket, [])
-            if article.get("title_en")
-        )
-
     retained = {
         key: entry
         for key, entry in entries.items()
@@ -247,34 +266,28 @@ def prune_translation_cache() -> int:
 
 
 def gather_for_journal(
-    client: CrossrefClient, journal: dict[str, Any], mode: str, target: date, include_supplements: bool = True
+    client: CrossrefClient, journal: dict[str, Any], mode: str, target: date
 ) -> tuple[list[dict[str, Any]], str]:
-    if mode == "backfill":
-        filter_sets = [[
-                f"from-pub-date:{retention_start(target).isoformat()}",
-                f"until-pub-date:{target.isoformat()}",
-                "type:journal-article",
-            ]]
-    else:
-        # The primary query is exactly the previous business day. A separate,
-        # tightly bounded index query discovers late deposits without widening
-        # the daily page's publication range.
-        filter_sets = [[
-                # Crossref filters are date-granular. Include the preceding
-                # UTC date so timestamps near Beijing midnight can be
-                # converted and filtered correctly below.
-                f"from-pub-date:{(target - timedelta(days=1)).isoformat()}",
-                f"until-pub-date:{target.isoformat()}",
-                "type:journal-article",
-            ]]
-        if include_supplements:
-            filter_sets.append([
-                f"from-index-date:{(target - timedelta(days=1)).isoformat()}",
-                f"until-index-date:{target.isoformat()}",
-                f"from-pub-date:{retention_start(target).isoformat()}",
-                f"until-pub-date:{(target - timedelta(days=1)).isoformat()}",
-                "type:journal-article",
-            ])
+    # Recheck the complete publication window on every 12-hour run. The index
+    # query also catches newly deposited works with missing publication dates.
+    cutoff = retention_start(target)
+    indexed_from = cutoff
+    if mode != "backfill":
+        status = read_json(DATA_DIR / "collection-status.json", {}).get(journal.get("id"), {})
+        checked = status.get("last_success_at") or (status.get("checked_at") if status.get("status") == "ok" else None)
+        try:
+            parsed = datetime.fromisoformat(checked.replace("Z", "+00:00"))
+            if parsed.tzinfo is not None:
+                parsed = parsed.astimezone(BEIJING)
+            indexed_from = max(cutoff, min(target, parsed.date()) - timedelta(days=1))
+        except (TypeError, ValueError, AttributeError):
+            pass
+    filter_sets = [
+        [f"from-pub-date:{(cutoff - timedelta(days=1)).isoformat()}",
+         f"until-pub-date:{target.isoformat()}", "type:journal-article"],
+        [f"from-index-date:{indexed_from.isoformat()}",
+         f"until-index-date:{target.isoformat()}", "type:journal-article"],
+    ]
     errors = []
     successful_issns = []
     merged: dict[str, dict[str, Any]] = {}
@@ -301,14 +314,9 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
     journals = [journal for journal in all_journals if not journal_id or journal["id"] == journal_id]
     if journal_id and not journals:
         raise SystemExit(f"Unknown journal id: {journal_id}")
+    migrate_legacy_records(now_beijing().date())
     existing, locations = load_existing()
     statuses = read_json(DATA_DIR / "collection-status.json", {})
-    initializing = not bool(statuses)
-    supplements = read_json(DATA_DIR / "supplements.json", {"late_additions": [], "date_pending": []})
-    supplement_maps = {
-        bucket: {article_key(item): item for item in supplements.get(bucket, [])}
-        for bucket in ("late_additions", "date_pending")
-    }
     translations = read_json(DATA_DIR / "translations.json", {"model": None, "entries": {}})
     translation_entries = translations.get("entries", {})
     active_translation_engine = translation_engine(configured_llm_model())
@@ -321,18 +329,18 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
 
     for journal in journals:
         try:
-            items, used_issn = gather_for_journal(
-                client, journal, mode, target, include_supplements=not initializing
-            )
+            items, used_issn = gather_for_journal(client, journal, mode, target)
             statuses[journal["id"]] = {
                 "status": "ok",
                 "checked_at": discovered_at,
+                "last_success_at": discovered_at,
                 "issn": used_issn,
                 "items_seen": len(items),
                 "error": None,
             }
         except RuntimeError as exc:
             statuses[journal["id"]] = {
+                "last_success_at": statuses.get(journal["id"], {}).get("last_success_at"),
                 "status": "failed",
                 "checked_at": discovered_at,
                 "error": str(exc),
@@ -387,53 +395,34 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
             previous_locations = set(locations.get(key, set()))
             if key in existing:
                 old = existing[key]
-                article["first_discovered_at"] = old["first_discovered_at"]
+                article["first_discovered_at"] = old.get("first_discovered_at") or old.get("first_seen_at") or discovered_at
                 article["title_zh"] = old.get("title_zh") or article["title_zh"]
                 article["translation_status"] = old.get("translation_status", article["translation_status"])
                 article["translation_engine"] = old.get("translation_engine") or article["translation_engine"]
-                # Do not demote a record with a confirmed publication date when
-                # a later Crossref response temporarily omits date metadata.
-                if not article["published_date"] and old.get("published_date"):
-                    article["published_date"] = old["published_date"]
-                    article["date_precision"] = old.get("date_precision", "date")
-                    article["date_source"] = old.get("date_source", "unknown")
+                # Missing metadata must never shift a previously stored date,
+                # including an inferred date, on a later month or retry.
+                if article.get("date_inferred") and old.get("published_date"):
+                    for field in ("published_date", "date_precision", "date_source", "raw_publication_date"):
+                        if field in old:
+                            article[field] = old[field]
+                    article["date_inferred"] = bool(old.get("date_inferred"))
+                    if old.get("date_inference"):
+                        article["date_inference"] = old["date_inference"]
+                    else:
+                        article.pop("date_inference", None)
             existing[key] = article
-
-            if article["published_date"]:
-                supplement_maps["date_pending"].pop(key, None)
-                for old_location in previous_locations:
-                    if old_location not in {"late_additions", "date_pending", article["published_date"]}:
-                        removed_from_days.setdefault(old_location, set()).add(key)
-
-                if key in supplement_maps["late_additions"]:
-                    supplement_maps["late_additions"][key] = {
-                        **supplement_maps["late_additions"][key],
-                        **article,
-                        "supplement_type": "late_addition",
-                        "archived_date": article["published_date"],
-                    }
-                published = date.fromisoformat(article["published_date"])
-                if published < retention_start(target) or published > target:
-                    locations[key] = {"late_additions"} if "late_additions" in previous_locations else set()
-                    continue
-                changed_days.setdefault(article["published_date"], {})[key] = article
-                if mode != "backfill" and not initializing and not previous_locations and published < target:
-                    late = {**article, "supplement_type": "late_addition", "archived_date": article["published_date"]}
-                    supplement_maps["late_additions"][key] = late
-            else:
-                if key in supplement_maps["date_pending"]:
-                    supplement_maps["date_pending"][key] = {
-                        **supplement_maps["date_pending"][key],
-                        **article,
-                        "supplement_type": "date_pending",
-                    }
-                elif mode != "backfill" and not initializing and not previous_locations:
-                    pending = {**article, "supplement_type": "date_pending"}
-                    supplement_maps["date_pending"][key] = pending
-            locations[key] = {
-                article["published_date"] or "date_pending",
-                *({"late_additions"} if key in supplement_maps["late_additions"] else set()),
-            }
+            for old_location in previous_locations:
+                if old_location != article["published_date"]:
+                    removed_from_days.setdefault(old_location, set()).add(key)
+            published = date.fromisoformat(article["published_date"])
+            if published < retention_start(target) or published > target:
+                # A corrected date outside the window removes the old placement.
+                if article["published_date"] in previous_locations:
+                    removed_from_days.setdefault(article["published_date"], set()).add(key)
+                locations[key] = set()
+                continue
+            changed_days.setdefault(article["published_date"], {})[key] = article
+            locations[key] = {article["published_date"]}
 
     # Clean against the complete retained ledger, including exclusions from
     # older runs and exclusions discovered during this collection.
@@ -442,18 +431,11 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
     if excluded_keys:
         for key in excluded_keys:
             for location in locations.get(key, set()):
-                if location in {"late_additions", "date_pending"}:
-                    supplement_maps[location].pop(key, None)
-                else:
-                    removed_from_days.setdefault(location, set()).add(key)
+                removed_from_days.setdefault(location, set()).add(key)
 
         for day, additions in changed_days.items():
             for key in excluded_keys:
                 additions.pop(key, None)
-        for bucket in ("late_additions", "date_pending"):
-            for key in excluded_keys:
-                supplement_maps[bucket].pop(key, None)
-
     for day in sorted(set(changed_days) | set(removed_from_days)):
         additions = changed_days.get(day, {})
         path = DAYS_DIR / f"{day}.json"
@@ -475,19 +457,11 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
         if not target_path.exists():
             write_json(target_path, day_payload(target.isoformat(), [], statuses))
 
-    for bucket in ("late_additions", "date_pending"):
-        supplements[bucket] = sorted(
-            supplement_maps[bucket].values(),
-            key=lambda item: item.get("first_discovered_at", ""),
-            reverse=True,
-        )
-    supplements["updated_at"] = iso_now()
-    write_json(DATA_DIR / "supplements.json", supplements)
     write_json(DATA_DIR / "collection-status.json", statuses)
     title_filter.prune_and_save()
     save_excluded_records(DATA_DIR, excluded_records, target)
     prune(target)
-    save_manifest(all_journals, target)
+    save_manifest(all_journals, target, collected=journal_id is None)
     print(f"Collection complete: mode={mode}, target={target.isoformat()}")
     return 0
 
@@ -495,13 +469,13 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("daily", "backfill"), default="daily")
-    parser.add_argument("--date", help="Business date in YYYY-MM-DD; defaults to yesterday in Beijing")
+    parser.add_argument("--date", help="Business date in YYYY-MM-DD; defaults to today in Beijing")
     parser.add_argument("--journal-id", help="Only collect one journal; used after adding a journal")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    default_target = now_beijing().date() - timedelta(days=1)
+    default_target = now_beijing().date()
     selected = date.fromisoformat(args.date) if args.date else default_target
     raise SystemExit(collect(args.mode, selected, args.journal_id))

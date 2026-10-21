@@ -6,6 +6,7 @@ import os
 import re
 import urllib.error
 import urllib.request
+import urllib.parse
 from typing import Any
 
 from common import DATA_DIR, iso_now, read_json, write_json
@@ -35,27 +36,57 @@ def fetch(url: str) -> str:
 
 
 def parse_metric(document: str) -> tuple[float, int | None] | None:
-    simplified = html.unescape(document)
-    for pattern in LABEL_PATTERNS:
-        match = pattern.search(simplified)
-        if not match:
+    # Publishers commonly put the label, number and year in separate HTML
+    # elements. Do not mistake a report/copyright year elsewhere on the page
+    # for the metric year, or a five-year impact factor for the annual JIF.
+    visible = re.sub(r"<(script|style)\b[^>]*>.*?</\1>", " ", document, flags=re.I | re.S)
+    text = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", visible)))
+    verified = []
+    undated = []
+    for label in re.finditer(r"\b(?:Journal\s+)?Impact\s+Factor\b", text, re.I):
+        if re.search(r"(?:5|five)[-\s]+year\s*$", text[max(0, label.start()-20):label.start()], re.I):
             continue
-        groups = match.groups()
-        if len(groups) == 2:
-            year_raw, value_raw = groups
+        tail = text[label.end():label.end()+90]
+        year_first = re.match(r"\s*\((20\d{2})\)\s*[:：]?\s*(\d+(?:\.\d+)?)\b", tail)
+        value_first = re.match(r"\s*[:：]?\s*(\d+(?:\.\d+)?)\s*\((20\d{2})\)", tail)
+        value_only = re.match(r"\s*[:：]?\s*(\d+(?:\.\d+)?)\b", tail)
+        value_before = re.search(r"(\d+(?:\.\d+)?)\s*$", text[max(0, label.start()-30):label.start()])
+        if year_first:
+            year, value = int(year_first[1]), float(year_first[2])
+        elif value_first:
+            value, year = float(value_first[1]), int(value_first[2])
+        elif value_only:
+            value = float(value_only[1])
+            if 0 < value < 100:
+                undated.append(value)
+            continue
+        elif value_before:
+            value = float(value_before[1])
+            if 0 < value < 100:
+                undated.append(value)
+            continue
         else:
-            year_raw, value_raw = None, groups[0]
-        value = float(value_raw)
+            continue
         if 0 < value < 100:
-            return value, int(year_raw) if year_raw else None
-    return None
+            verified.append((value, year))
+    if verified:
+        latest = max(year for _, year in verified)
+        values = {value for value, year in verified if year == latest}
+        return (values.pop(), latest) if len(values) == 1 else None
+    return (undated[0], None) if undated and len(set(undated)) == 1 else None
 
 
 def update_journal(journal: dict[str, Any]) -> None:
     metric = journal["impact_factor"]
     metric["checked_at"] = iso_now()
+    source_url = metric.get("source_url") or journal["url"]
+    source = urllib.parse.urlsplit(source_url)
+    # Nature homepages often omit the metric year. Its dedicated metrics page
+    # gives the explicitly paired annual value and year.
+    if source.hostname in {"www.nature.com", "nature.com"} and len(source.path.strip("/").split("/")) == 1:
+        source_url = urllib.parse.urlunsplit((source.scheme, source.netloc, source.path.rstrip("/") + "/journal-impact", "", ""))
     try:
-        document = fetch(metric.get("source_url") or journal["url"])
+        document = fetch(source_url)
         parsed = parse_metric(document)
     except (urllib.error.URLError, TimeoutError, UnicodeError) as exc:
         metric["status"] = "check_failed"
@@ -71,7 +102,11 @@ def update_journal(journal: dict[str, Any]) -> None:
         metric["candidate_value"] = value
         metric["error"] = "Metric value found without an explicit year; existing value retained"
         return
-    metric.update({"value": value, "year": year, "status": "verified", "error": None})
+    if isinstance(metric.get("year"), int) and year < metric["year"]:
+        metric["status"] = "outdated_source"
+        metric["error"] = "Publisher page shows an older metric year; existing value retained"
+        return
+    metric.update({"value": value, "year": year, "status": "verified", "error": None, "source_url": source_url})
     metric.pop("candidate_value", None)
 
 

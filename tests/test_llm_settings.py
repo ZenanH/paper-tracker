@@ -13,6 +13,37 @@ import llm_settings
 
 
 class LlmSettingsTests(unittest.TestCase):
+    def test_verify_uses_structured_response_without_saving_or_leaking_key(self):
+        response = {"choices": [{"message": {"tool_calls": [{"type": "function", "function": {
+            "name": "classify_titles", "arguments": json.dumps({"classifications": [
+                {"id": "connection-check", "category": "keep", "confidence": 1}
+            ]})}}]}}]}
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            llm_settings, "CONFIG_PATH", Path(directory) / "llm.json"
+        ), patch("translate.request_json", return_value=response) as request:
+            public = llm_settings.verify_llm_settings("https://example.test/v1", "private-key", "model")
+            self.assertTrue(public["verified"])
+            self.assertNotIn("private-key", json.dumps(public))
+            self.assertFalse(llm_settings.CONFIG_PATH.exists())
+            self.assertEqual(request.call_args.kwargs["timeout"], 12)
+
+    def test_verify_rejects_wrong_ids_and_redacts_provider_errors(self):
+        from translate import TranslationError
+        with patch("translate.request_json", side_effect=TranslationError("private-key echoed by provider")):
+            with self.assertRaises(ValueError) as raised:
+                llm_settings.verify_llm_settings("https://example.test/v1", "private-key", "model")
+        self.assertNotIn("private-key", str(raised.exception))
+        with patch("translate.request_json", return_value={"choices": [{"message": {"content": "OK"}}]}):
+            with self.assertRaises(ValueError):
+                llm_settings.verify_llm_settings("https://example.test/v1", "private-key", "model")
+
+    def test_malformed_provider_shapes_fail_as_validation_errors(self):
+        for response in [[], {"choices": ["invalid"]}, {"choices": [{"message": "invalid"}]},
+                         {"choices": [{"message": {"tool_calls": ["invalid"]}}]}]:
+            with self.subTest(response=response), patch("translate.request_json", return_value=response):
+                with self.assertRaises(ValueError):
+                    llm_settings.verify_llm_settings("https://example.test/v1", "private-key", "model")
+
     def test_environment_is_used_until_persistent_config_exists(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(
             llm_settings, "CONFIG_PATH", Path(directory) / "llm-config.json"
@@ -84,7 +115,7 @@ class LlmSettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch.object(
             llm_settings, "CONFIG_PATH", Path(directory) / "llm-config.json"
         ), patch.dict(os.environ, {}, clear=True):
-            with self.assertRaisesRegex(ValueError, "用户名或密码"):
+            with self.assertRaisesRegex(ValueError, "username or password"):
                 llm_settings.save_llm_settings(
                     "https://user:pass@provider.example/v1", "secret", "luna"
                 )

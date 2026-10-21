@@ -3,7 +3,7 @@
 
 接口：
   GET  /api/archive   → {"updated_at":..., "items":{...}, "cleared_items":{...}, "favorites":{...}}
-  POST /api/archive   → add/remove/clear/restore_cleared/favorite/unfavorite/remove_all
+  POST /api/archive   → add/remove/clear/restore_cleared/favorite/unfavorite
                          （Prefer: return=minimal 时只返回更新时间）
   GET  /api/healthz   → 健康检查
 
@@ -16,6 +16,8 @@ import json
 import os
 import tempfile
 import threading
+import fcntl
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -26,10 +28,25 @@ PORT = int(os.environ.get("PORT", "8080"))
 BEIJING = timezone(timedelta(hours=8))
 LOCK = threading.Lock()
 
+
+@contextmanager
+def state_lock():
+    with LOCK:
+        ARCHIVE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with (ARCHIVE_FILE.parent / ".archive.lock").open("a") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            try:
+                if (ARCHIVE_FILE.parent / ".restore-pending.json").exists():
+                    raise ArchiveStateError("Data restoration requires recovery. Reading-state writes are temporarily disabled.")
+                yield
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+
 # 归档时保留的文章字段（日期文件会滚出保留窗口，故需自带元数据）
 ITEM_FIELDS = (
     "id", "journal_id", "date", "title_en", "title_zh",
-    "url", "doi", "translation_status",
+    "url", "doi", "translation_status", "first_seen_at",
+    "date_inferred", "date_inference",
 )
 MAX_BODY = 2 * 1024 * 1024
 
@@ -43,7 +60,7 @@ def now_iso() -> str:
 
 
 def empty_state() -> dict:
-    return {"updated_at": None, "items": {}, "cleared_items": {}, "favorites": {}}
+    return {"updated_at": None, "items": {}, "cleared_items": {}, "favorites": {}, "dataset_id": "initial"}
 
 
 def retention_cutoff() -> str | None:
@@ -66,7 +83,9 @@ def prune_state(state: dict) -> bool:
         stale_ids = [
             item_id
             for item_id, item in bucket.items()
-            if isinstance(item, dict) and item.get("date") and str(item["date"]) < cutoff
+            if isinstance(item, dict)
+            and (item.get("date") or item.get("first_seen_at") or item.get("archived_at"))
+            and str(item.get("date") or item.get("first_seen_at") or item["archived_at"])[:10] < cutoff
         ]
         for item_id in stale_ids:
             bucket.pop(item_id, None)
@@ -80,25 +99,45 @@ def read_state() -> dict:
     try:
         data = json.loads(ARCHIVE_FILE.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
-        raise ArchiveStateError(f"归档文件无法读取或已损坏: {ARCHIVE_FILE}") from exc
+        raise ArchiveStateError(f"The archive file is unreadable or corrupt: {ARCHIVE_FILE}") from exc
     if not isinstance(data, dict):
-        raise ArchiveStateError(f"归档文件根节点必须是 JSON 对象: {ARCHIVE_FILE}")
+        raise ArchiveStateError(f"The archive file must contain a JSON object: {ARCHIVE_FILE}")
     for bucket_name in ("items", "cleared_items", "favorites"):
         if bucket_name not in data:
             data[bucket_name] = {}
         elif not isinstance(data[bucket_name], dict):
-            raise ArchiveStateError(f"归档文件字段 {bucket_name} 必须是 JSON 对象")
+            raise ArchiveStateError(f"Archive field {bucket_name} must be a JSON object.")
     data.setdefault("updated_at", None)
+    data.setdefault("dataset_id", "initial")
     return data
 
 
 def read_pruned_state() -> dict:
-    with LOCK:
+    with state_lock():
         state = read_state()
-        if prune_state(state):
+        normalized = normalize_legacy_dates(state)
+        if prune_state(state) or normalized:
             state["updated_at"] = now_iso()
             write_state(state)
         return state
+
+
+def normalize_legacy_dates(state: dict) -> bool:
+    """One-time compatibility for saved papers without a publication date."""
+    try:
+        manifest = json.loads(MANIFEST_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if manifest.get("date_policy") != "current-month-start":
+        return False
+    month_start = datetime.fromisoformat(now_iso()).date().replace(day=1).isoformat()
+    changed = False
+    for bucket in ("items", "cleared_items", "favorites"):
+        for item in state[bucket].values():
+            if isinstance(item, dict) and not item.get("date"):
+                item.update(date=month_start, date_inferred=True, date_inference="current-month-start")
+                changed = True
+    return changed
 
 
 def write_state(state: dict) -> None:
@@ -143,24 +182,27 @@ def apply_archive(payload: dict) -> dict:
     action = str(payload.get("action") or "").strip()
     allowed_actions = {
         "add", "remove", "clear", "restore_cleared",
-        "favorite", "unfavorite", "remove_all",
+        "favorite", "unfavorite",
     }
     if action not in allowed_actions:
         raise ValueError(
-            "action 必须是 add、remove、clear、restore_cleared、favorite、unfavorite 或 remove_all"
+            "action must be add, remove, clear, restore_cleared, favorite, or unfavorite."
         )
 
-    with LOCK:
+    with state_lock():
         state = read_state()
+        if (payload.get("dataset_id") is not None or state["dataset_id"] != "initial") and payload.get("dataset_id") != state["dataset_id"]:
+            raise ValueError("The dataset changed after an import. Reload before changing saved papers.")
         items = state["items"]
         cleared_items = state["cleared_items"]
         favorites = state["favorites"]
-        changed = prune_state(state)
+        normalized = normalize_legacy_dates(state)
+        changed = prune_state(state) or normalized
 
         if action in {"add", "favorite"}:
             raw_items = payload.get("items")
             if not isinstance(raw_items, list):
-                raise ValueError(f"{action} 需要 items 数组")
+                raise ValueError(f"{action} requires an items array.")
             for raw in raw_items:
                 item = clean_item(raw)
                 if not item:
@@ -185,7 +227,7 @@ def apply_archive(payload: dict) -> dict:
 
         raw_ids = payload.get("ids")
         if not isinstance(raw_ids, list):
-            raise ValueError(f"{action} 需要 ids 数组")
+            raise ValueError(f"{action} requires an IDs array.")
 
         if action == "remove":
             for raw_id in raw_ids:
@@ -199,14 +241,6 @@ def apply_archive(payload: dict) -> dict:
                 if not isinstance(raw_id, str):
                     continue
                 changed = favorites.pop(raw_id, None) is not None or changed
-        elif action == "remove_all":
-            for raw_id in raw_ids:
-                if not isinstance(raw_id, str):
-                    continue
-                removed = items.pop(raw_id, None)
-                removed = cleared_items.pop(raw_id, None) or removed
-                removed = favorites.pop(raw_id, None) or removed
-                changed = removed is not None or changed
         elif action == "clear":
             for raw_id in raw_ids:
                 if not isinstance(raw_id, str):
@@ -282,12 +316,12 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             length = 0
         if length <= 0 or length > MAX_BODY:
-            self._send(400, {"error": "请求体缺失或过大"})
+            self._send(400, {"error": "The request body is missing or too large."})
             return
         try:
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
             if not isinstance(payload, dict):
-                raise ValueError("请求体必须是 JSON 对象")
+                raise ValueError("The request body must be a JSON object.")
             state = apply_archive(payload)
         except ArchiveStateError as exc:
             self._send(500, {"error": str(exc)})
@@ -296,7 +330,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(400, {"error": str(exc)})
             return
         except (json.JSONDecodeError, UnicodeDecodeError):
-            self._send(400, {"error": "JSON 解析失败"})
+            self._send(400, {"error": "Invalid JSON."})
             return
         prefer = (self.headers.get("Prefer") or "").lower()
         minimal = "return=minimal" in prefer

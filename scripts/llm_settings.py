@@ -32,9 +32,9 @@ def read_llm_settings() -> dict[str, str]:
     try:
         payload = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("模型配置文件无法读取或已损坏") from exc
+        raise ValueError("The model settings file is unreadable or corrupt.") from exc
     if not isinstance(payload, dict):
-        raise ValueError("模型配置文件必须是 JSON 对象")
+        raise ValueError("The model settings file must contain a JSON object.")
     return {
         "base_url": _clean(payload.get("base_url")),
         "api_key": _clean(payload.get("api_key")),
@@ -76,9 +76,9 @@ def public_llm_settings() -> dict[str, Any]:
 def _validate_base_url(base_url: str) -> None:
     parsed = urllib.parse.urlparse(base_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("Base URL 必须是完整的 http(s) 地址，通常以 /v1 结尾")
+        raise ValueError("Base URL must be a complete HTTP(S) URL, usually ending in /v1.")
     if parsed.username or parsed.password:
-        raise ValueError("Base URL 不能包含用户名或密码")
+        raise ValueError("Base URL must not contain a username or password.")
 
 
 def _write_secure(payload: dict[str, Any]) -> None:
@@ -107,7 +107,7 @@ def save_llm_settings(base_url: Any, api_key: Any, model: Any) -> dict[str, Any]
     if not api_key:
         api_key = read_llm_settings()["api_key"]
     if not base_url or not api_key or not model:
-        raise ValueError("Base URL、API Key 和模型名称都必须填写")
+        raise ValueError("Base URL, API key, and model name are all required.")
     _validate_base_url(base_url)
     _write_secure(
         {
@@ -125,3 +125,33 @@ def disable_llm_settings() -> dict[str, Any]:
         {"base_url": "", "api_key": "", "model": "", "updated_at": iso_now()}
     )
     return public_llm_settings()
+
+
+def verify_llm_settings(base_url: Any, api_key: Any, model: Any) -> dict[str, Any]:
+    """Verify the unsaved form with an actual structured-tool request; never echo errors or keys."""
+    from translate import LLMConfig, TranslationError, extract_translation_payload, request_json
+    from title_filter import build_payload, validate_classification_payload
+
+    base_url, api_key, model = _clean(base_url), _clean(api_key), _clean(model)
+    if not api_key:
+        api_key = read_llm_settings()["api_key"]
+    if not base_url or not api_key or not model:
+        raise ValueError("Enter a Base URL, API key, and model name.")
+    _validate_base_url(base_url)
+    config = LLMConfig(base_url, api_key, model)
+    items = [{"id": "connection-check", "title_en": "Numerical methods for solid mechanics"}]
+    for force in (True, False):
+        try:
+            response = request_json(
+                config.endpoint, build_payload(config, items, force),
+                {"Authorization": f"Bearer {api_key}"}, retries=1, timeout=12,
+            )
+            validate_classification_payload(
+                items, extract_translation_payload(response, function_name="classify_titles")
+            )
+            return {"verified": True, "checked_at": iso_now(), "model": model}
+        except TranslationError as exc:
+            if force and exc.status_code in {400, 422} and "tool_choice" in exc.detail.lower():
+                continue
+            raise ValueError("Connection test failed. Check the URL, key, model, and function tool support. Settings were not saved.") from None
+    raise ValueError("Model verification failed.")

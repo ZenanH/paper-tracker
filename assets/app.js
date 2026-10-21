@@ -1,1532 +1,1114 @@
-const ARCHIVE_API = "api/archive";
-const ADMIN_API = "api/admin";
-
-const STORAGE_KEYS = {
-  hiddenJournals: "paper-tracker-hidden-journals",
-  settingsGroups: "paper-tracker-settings-journal-groups",
-  theme: "paper-tracker-theme",
-};
-
+const $ = (id) => document.getElementById(id);
+const PAGE_SIZE = 60;
+const countFormatter = new Intl.NumberFormat('en-US');
+const countLabel = (count, noun) => `${countFormatter.format(count)} ${noun}${count === 1 ? '' : 's'}`;
 const state = {
-  view: "daily",
-  mode: "history",
-  date: null,
-  dailyDay: null,
-  archiveDate: null,
+  view: 'papers',
+  theme: 'system',
   manifest: null,
+  journalData: {},
   journals: [],
-  journalMap: new Map(),
-  hidden: new Set(),
-  selected: new Set(),
-  day: null,
-  supplements: null,
-  theme: "system",
-  settingsGroups: {},
-  archive: { items: {}, cleared_items: {}, favorites: {}, updated_at: null },
-  archiveSelection: new Set(),
-  archiveOperation: null,
-  pendingArchives: new Set(),
-  pendingFavorites: new Set(),
+  unfollowedJournals: [],
+  articles: [],
+  dayCache: new Map(),
+  failedDates: [],
+  loading: false,
+  search: '',
+  page: 1,
+  selection: new Set(),
+  archive: {
+    items: {},
+    cleared_items: {},
+    favorites: {}
+  },
+  archiveAvailable: false,
+  archiveRevision: 0,
+  archiveDatasetId: 'initial',
+  busy: false,
+  saveProgress: null,
   admin: null,
-  adminWasRunning: false,
-  filterJournalIds: new Set(),
-  filterDirty: false,
+  adminLoaded: false,
+  adminBusy: false,
+  poll: null,
   llmDirty: false,
-  excludedRecords: [],
-  excludedSelection: new Set(),
+  filterDirty: false,
+  refreshAfterJob: false,
+  filterIds: new Set(),
+  prompt: '',
+  match: null,
+  gistBusy: false,
+  gistFlow: null,
+  gistPoll: null,
+  gistPreview: null,
+  gistResultSeen: null,
 };
-
-const elements = {
-  list: document.querySelector("#paper-list"),
-  heading: document.querySelector("#content-heading"),
-  datePicker: document.querySelector("#date-picker"),
-  previous: document.querySelector("#previous-day"),
-  next: document.querySelector("#next-day"),
-  yesterday: document.querySelector("#return-yesterday"),
-  summary: document.querySelector("#toolbar-summary"),
-  status: document.querySelector("#status-strip"),
-  updateStatus: document.querySelector("#update-status"),
-  archiveToolbar: document.querySelector("#archive-toolbar"),
-  archiveCount: document.querySelector("#archive-count"),
-  favoriteCount: document.querySelector("#favorite-count"),
-  archiveSelection: document.querySelector("#archive-selection"),
-  archiveSelectAll: document.querySelector("#archive-select-all"),
-  archiveNone: document.querySelector("#archive-none"),
-  archiveClear: document.querySelector("#archive-clear"),
-  archiveRestore: document.querySelector("#archive-restore"),
-  archiveProgress: document.querySelector("#archive-progress"),
-  dailyToolbar: document.querySelector("#daily-toolbar"),
-  dailyDate: document.querySelector("#daily-date"),
-  historyToolbar: document.querySelector("#history-toolbar"),
-  historyDateControls: document.querySelector("#history-date-controls"),
-  archivePrevious: document.querySelector("#archive-previous"),
-  archiveNext: document.querySelector("#archive-next"),
-  archiveYesterday: document.querySelector("#archive-yesterday"),
-  archiveDatePicker: document.querySelector("#archive-date-picker"),
-  supplementCount: document.querySelector("#supplement-count"),
-  sourceNote: document.querySelector("#source-note"),
-  settingsDialog: document.querySelector("#settings-dialog"),
-  settingsJournalList: document.querySelector("#settings-journal-list"),
-  settingsJournalSummary: document.querySelector("#settings-journal-summary"),
-  settingsArchiveSummary: document.querySelector("#settings-archive-summary"),
-  settingsRestoreArchive: document.querySelector("#settings-restore-archive"),
-  journalAdminSummary: document.querySelector("#journal-admin-summary"),
-  journalAdminStatus: document.querySelector("#journal-admin-status"),
-  journalAdminList: document.querySelector("#journal-admin-list"),
-  journalNameInput: document.querySelector("#journal-name-input"),
-  journalAddRun: document.querySelector("#journal-add-run"),
-  journalRunNow: document.querySelector("#journal-run-now"),
-  titleFilterSummary: document.querySelector("#title-filter-summary"),
-  titleFilterList: document.querySelector("#title-filter-list"),
-  titleFilterSave: document.querySelector("#title-filter-save"),
-  titleFilterStatus: document.querySelector("#title-filter-status"),
-  llmSettingsSummary: document.querySelector("#llm-settings-summary"),
-  llmBaseUrl: document.querySelector("#llm-base-url"),
-  llmModel: document.querySelector("#llm-model"),
-  llmApiKey: document.querySelector("#llm-api-key"),
-  llmSave: document.querySelector("#llm-save"),
-  llmDisable: document.querySelector("#llm-disable"),
-  llmSettingsStatus: document.querySelector("#llm-settings-status"),
-  excludedPaperSummary: document.querySelector("#excluded-paper-summary"),
-  excludedPaperList: document.querySelector("#excluded-paper-list"),
-  excludedPaperRestore: document.querySelector("#excluded-paper-restore"),
-  excludedPaperStatus: document.querySelector("#excluded-paper-status"),
-  journalAddFilter: document.querySelector("#journal-add-filter"),
+const escape = (value = '') => String(value ?? '').replace(/[&<>"']/g, c => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;'
+} [c]));
+const icons = {
+  settings: '<path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="m9 3-1 3-3 1-2 3 2 3v3l3 2 3-1 3 1 3-2v-3l2-3-2-3-3-1-1-3Z"/>',
+  star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"/>',
+  archive: '<rect x="3" y="3" width="18" height="5" rx="1.5"/><path d="M5 8v12h14V8M10 12h4"/>',
+  search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',
+  close: '<path d="m6 6 12 12M6 18 18 6"/>',
 };
-
-let adminPollTimer = null;
-
-const escapeHTML = (value = "") => String(value).replace(/[&<>'"]/g, (char) => ({
-  "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
-}[char]));
-
-const formatDate = (value, options = {}) => new Intl.DateTimeFormat("zh-CN", {
-  timeZone: "Asia/Shanghai", year: "numeric", month: "long", day: "numeric", weekday: "long", ...options,
-}).format(new Date(`${value}T12:00:00+08:00`));
-
-const formatDateTime = (value) => {
-  if (!value) return "时间待确认";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "时间待确认";
-  return new Intl.DateTimeFormat("zh-CN", {
-    timeZone: "Asia/Shanghai", year: "numeric", month: "numeric", day: "numeric",
-    hour: "2-digit", minute: "2-digit",
-  }).format(parsed);
+const icon = (name) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || ''}</svg>`;
+const time = (value) => {
+  if (!value || Number.isNaN(Date.parse(value))) return 'Not checked';
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(new Date(value));
 };
+const compactTime = value => !value || Number.isNaN(Date.parse(value)) ? 'Not checked' :
+  new Intl.DateTimeFormat('en-GB', {timeZone: 'Asia/Shanghai', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'}).format(new Date(value));
+const dataDate = value => !value || Number.isNaN(Date.parse(value)) ? 'Not checked' :
+  new Intl.DateTimeFormat('en-GB', {timeZone: 'Asia/Shanghai', day: 'numeric', month: 'short', year: 'numeric'}).format(new Date(value));
 
-const addDays = (value, amount) => {
-  const date = new Date(`${value}T12:00:00+08:00`);
-  date.setUTCDate(date.getUTCDate() + amount);
-  return date.toISOString().slice(0, 10);
-};
-
-function readStorage(key) {
+function storage(key, value) {
   try {
-    return window.localStorage.getItem(key);
-  } catch (error) {
-    return null;
-  }
+    if (value === undefined) return localStorage.getItem(key);
+    localStorage.setItem(key, value);
+  } catch {}
+  return null;
 }
 
-function writeStorage(key, value) {
+function setTheme(value) {
+  state.theme = ['system', 'light', 'dark'].includes(value) ? value : 'system';
+  document.documentElement.dataset.theme = state.theme === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : state.theme;
+  storage('paper-tracker-theme', state.theme);
+  document.querySelector('meta[name="theme-color"]').content = document.documentElement.dataset.theme === 'dark' ? '#13191f' : '#edf1f3';
+  document.querySelectorAll('[data-theme]').forEach(button => {
+    if (button === document.documentElement) return;
+    const active = button.dataset.theme === state.theme;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+}
+async function request(path, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeout || 30000);
   try {
-    window.localStorage.setItem(key, value);
+    const response = await fetch(path, {
+      cache: 'no-store',
+      ...options,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+      }
+    });
+    let body;
+    try {
+      body = await response.json();
+    } catch {
+      throw new Error(`Invalid service response (${response.status})`);
+    }
+    if (!response.ok) throw new Error(englishMessage(body.error, `Service returned ${response.status}`));
+    return body;
   } catch (error) {
-    // Private browsing modes can deny localStorage; the page still works per session.
+    if (error.name === 'AbortError') throw new Error('The request timed out. Please try again.');
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
 }
+const adminRequest = (path, payload) => request(`api/admin${path}`, payload === undefined ? {} : {
+  method: 'POST',
+  body: JSON.stringify(payload)
+});
 
-function parseStorageJSON(key, fallback) {
-  try {
-    const value = JSON.parse(readStorage(key) || "null");
-    return value ?? fallback;
-  } catch (error) {
-    return fallback;
-  }
+function englishMessage(value, fallback) {
+  // Older running services may still return localized operational messages.
+  return typeof value === 'string' && value.trim() && !/\p{Script=Han}/u.test(value) ? value : fallback;
 }
+let noticeTimer;
+let stickyFrame = null;
 
-function visibleJournals() {
-  return state.journals.filter((journal) => !state.hidden.has(journal.id));
-}
-
-function normalizeJournalPreferences() {
-  const ids = new Set(state.journals.map((journal) => journal.id));
-  state.hidden = new Set([...state.hidden].filter((id) => ids.has(id)));
-  if (state.journals.length && state.hidden.size === state.journals.length) {
-    state.hidden.delete(state.journals[0].id);
-  }
-  state.selected = new Set(visibleJournals().map((journal) => journal.id));
-}
-
-function persistHiddenJournals() {
-  writeStorage(STORAGE_KEYS.hiddenJournals, JSON.stringify([...state.hidden]));
-}
-
-function readThemePreference() {
-  const stored = readStorage(STORAGE_KEYS.theme);
-  return ["light", "dark", "system"].includes(stored) ? stored : "system";
-}
-
-function applyTheme(preference = state.theme) {
-  const resolved = preference === "system"
-    ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
-    : preference;
-  document.documentElement.dataset.theme = resolved;
-  const themeMeta = document.querySelector('meta[name="theme-color"]');
-  if (themeMeta) themeMeta.content = resolved === "dark" ? "#121714" : "#f7f8f5";
-  document.querySelectorAll("[data-theme-option]").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.themeOption === preference);
-    button.setAttribute("aria-pressed", String(button.dataset.themeOption === preference));
+function updateStickyOffsets() {
+  if (stickyFrame !== null) return;
+  stickyFrame = requestAnimationFrame(() => {
+    stickyFrame = null;
+    const navigation = document.querySelector('.site-header');
+    const navHeight = getComputedStyle(navigation).position === 'sticky' ? Math.ceil(navigation.getBoundingClientRect().height) : 0;
+    const saveHeight = $('save-status').hidden ? 0 : Math.ceil($('save-status').getBoundingClientRect().height);
+    const selectionHeight = $('selection-bar').hidden ? 0 : Math.ceil($('selection-bar').getBoundingClientRect().height) + 16;
+    const headers = [...document.querySelectorAll('.journal-header')];
+    const journalHeight = Math.max(0, ...headers.map(header => Math.ceil(header.getBoundingClientRect().height)));
+    document.documentElement.style.setProperty('--navigation-height', `${navHeight}px`);
+    document.documentElement.style.setProperty('--save-status-height', `${saveHeight}px`);
+    document.documentElement.style.setProperty('--journal-sticky-top', `${navHeight + saveHeight + selectionHeight}px`);
+    document.documentElement.style.setProperty('--journal-header-height', `${journalHeight}px`);
   });
 }
 
-function setTheme(preference) {
-  if (!["light", "dark", "system"].includes(preference)) return;
-  state.theme = preference;
-  writeStorage(STORAGE_KEYS.theme, preference);
-  applyTheme(preference);
+function notify(message, error = false) {
+  $('notice').hidden = false;
+  $('notice').textContent = message;
+  $('notice').classList.toggle('error', error);
+  clearTimeout(noticeTimer);
+  if (!error) noticeTimer = setTimeout(() => $('notice').hidden = true, 5000);
 }
 
-async function fetchJSON(path, optional = false) {
-  const response = await fetch(path, { cache: "no-store" });
-  if (optional && response.status === 404) return null;
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-  return response.json();
+function inline(id, message, error = false) {
+  $(id).textContent = message;
+  $(id).classList.toggle('error', error);
 }
 
-function setLoading() {
-  elements.list.replaceChildren(document.querySelector("#loading-template").content.cloneNode(true));
+function safeURL(value) {
+  try {
+    const u = new URL(value);
+    return ['https:', 'http:'].includes(u.protocol) ? u.href : '#';
+  } catch {
+    return '#';
+  }
 }
 
 function syncURL() {
-  const params = new URLSearchParams();
-  if (state.view !== "daily") params.set("view", state.view);
-  if (state.view === "history") {
-    if (state.date) params.set("date", state.date);
-    if (state.mode === "supplements") params.set("mode", "supplements");
-  }
-  if (state.view === "archive" && state.archiveDate) params.set("adate", state.archiveDate);
-  history.replaceState(null, "", `${location.pathname}${params.size ? `?${params}` : ""}`);
+  const p = new URLSearchParams();
+  if (state.view !== 'papers') p.set('view', state.view);
+  if (state.search) p.set('q', state.search);
+  if (state.page > 1) p.set('page', state.page);
+  history.replaceState(null, '', `${location.pathname}${p.size?'?'+p:''}`);
 }
 
-function renderIcons() {
-  if (window.lucide) window.lucide.createIcons({ attrs: { "aria-hidden": "true" } });
+function resetReading() {
+  state.page = 1;
+  state.selection.clear();
+  renderReading();
+  syncURL();
 }
 
-function groupBy(items, key) {
-  return items.reduce((groups, item) => {
-    const value = item[key] || "其他";
-    (groups[value] ||= []).push(item);
-    return groups;
-  }, {});
+function isRead(id) {
+  return Boolean(state.archive.items[id] || state.archive.cleared_items[id]);
 }
 
-function normalizeArchive(data) {
-  return {
-    items: data && typeof data.items === "object" && data.items ? data.items : {},
-    cleared_items: data && typeof data.cleared_items === "object" && data.cleared_items ? data.cleared_items : {},
-    favorites: data && typeof data.favorites === "object" && data.favorites ? data.favorites : {},
-    updated_at: data?.updated_at || null,
-  };
+function selectedRecords() {
+  const all = new Map([...state.articles, ...Object.values(state.archive.items), ...Object.values(state.archive.favorites)].map(a => [a.id, a]));
+  return [...state.selection].map(id => all.get(id)).filter(Boolean);
 }
 
-function updateSettingsArchiveUI() {
-  const count = Object.keys(state.archive.cleared_items).length;
-  elements.settingsArchiveSummary.textContent = count ? `${count} 篇已清空` : "没有已清空的归档";
-  elements.settingsRestoreArchive.disabled = count === 0 || Boolean(state.archiveOperation);
-  elements.settingsRestoreArchive.textContent = count ? `恢复归档 (${count})` : "恢复归档";
+function unreadArticles() {
+  const followed = new Set(state.journals.map(journal => journal.id));
+  return state.articles
+    .filter(article => followed.has(article.journal_id) && !isRead(article.id))
+    .filter(article => !article.content_type || article.content_type === 'article')
+    .filter(article => article.published_date >= state.manifest.retention.start && article.published_date <= state.manifest.retention.end);
 }
 
-function renderJournalAdmin() {
-  const payload = state.admin;
-  if (!payload) {
-    elements.journalAdminSummary.textContent = "管理服务暂不可用";
-    elements.journalAdminStatus.textContent = "无法读取期刊管理状态。";
-    elements.journalAdminList.replaceChildren();
-    elements.journalAddRun.disabled = true;
-    elements.journalRunNow.disabled = true;
-    elements.journalAddFilter.disabled = true;
-    renderLlmSettings();
-    renderTitleFilter();
-    renderExcludedPapers();
-    return;
-  }
-  const journals = payload.journals || [];
-  const job = payload.job || {};
-  const running = job.status === "running";
-  const statusLabels = { idle: "空闲", running: "运行中", success: "上次运行成功", failed: "上次运行失败" };
-  elements.journalAdminSummary.textContent = `${journals.length} 本 · 每日 ${payload.schedule || "01:00"}（北京时间）`;
-  const nextRun = job.next_run ? `下次 ${formatDateTime(job.next_run)}` : "";
-  const jobMessage = job.message ? ` · ${job.message}` : "";
-  const latestLog = job.log?.length ? String(job.log[job.log.length - 1]).split("\n").pop() : "";
-  const logMessage = latestLog ? ` · ${latestLog}` : "";
-  elements.journalAdminStatus.classList.toggle("is-error", job.status === "failed");
-  elements.journalAdminStatus.innerHTML = `<strong>${escapeHTML(statusLabels[job.status] || "状态未知")}</strong><span>${escapeHTML(jobMessage.replace(/^ · /, ""))}${escapeHTML(logMessage)}${(jobMessage || logMessage) && nextRun ? " · " : ""}${escapeHTML(nextRun)}</span>`;
-  elements.journalAddRun.disabled = running;
-  elements.journalRunNow.disabled = running;
-  elements.journalNameInput.disabled = running;
-  elements.journalAddFilter.disabled = running;
-  elements.journalAdminList.innerHTML = journals.map((journal) => `
-    <div class="journal-admin-item">
-      <div>
-        <strong>${escapeHTML(journal.name)}</strong>
-        <span>${journal.origin === "user" ? "用户添加" : "镜像默认"} · ${escapeHTML(journal.group || "未分组")} · 中科院 ${escapeHTML(journal.cas?.zone ?? "-")} 区</span>
-      </div>
-      <button class="icon-button compact-icon-button" type="button" data-delete-journal="${escapeHTML(journal.id)}" data-journal-name="${escapeHTML(journal.name)}" title="删除期刊" aria-label="删除 ${escapeHTML(journal.name)}" ${running ? "disabled" : ""}>
-        <i data-lucide="trash-2"></i>
-      </button>
-    </div>`).join("");
-  renderLlmSettings();
-  renderTitleFilter();
-  renderExcludedPapers();
-  renderIcons();
+function filteredArticles() {
+  const favorites = state.view === 'favorites';
+  const records = favorites ?
+    Object.values(state.archive.favorites) :
+    unreadArticles();
+  const query = state.search.trim().toLocaleLowerCase();
+  return records.filter(article => !query || [article.title_en, article.title_zh].some(title => (title || '').toLocaleLowerCase().includes(query)))
+    .sort(articleOrder);
 }
 
-function renderLlmSettings() {
-  const payload = state.admin;
-  const llm = payload?.llm || {};
-  const running = payload?.job?.status === "running";
-  const available = Boolean(payload);
-  elements.llmSettingsSummary.textContent = !available
-    ? "管理服务暂不可用"
-    : llm.configured
-      ? `已启用 · ${llm.model || "模型待确认"}`
-      : "未配置 · 翻译和过滤已停用";
-  if (!state.llmDirty) {
-    elements.llmBaseUrl.value = llm.base_url || "";
-    elements.llmModel.value = llm.model || "";
-    elements.llmApiKey.value = "";
-  }
-  elements.llmApiKey.placeholder = llm.api_key_set ? "已保存；留空保持不变" : "输入 API Key";
-  for (const input of [elements.llmBaseUrl, elements.llmModel, elements.llmApiKey]) {
-    input.disabled = !available || running;
-  }
-  elements.llmSave.disabled = !available || running || !state.llmDirty;
-  elements.llmDisable.disabled = !available || running || !llm.configured;
-  elements.llmSettingsStatus.classList.toggle("is-error", Boolean(llm.error));
-  if (llm.error) elements.llmSettingsStatus.textContent = llm.error;
-}
-
-async function saveLlmSettings() {
-  elements.llmSave.disabled = true;
-  elements.llmSettingsStatus.classList.remove("is-error");
-  elements.llmSettingsStatus.textContent = "正在保存…";
-  try {
-    state.admin = await adminRequest("/llm", {
-      method: "POST",
-      body: JSON.stringify({
-        base_url: elements.llmBaseUrl.value.trim(),
-        model: elements.llmModel.value.trim(),
-        api_key: elements.llmApiKey.value,
-      }),
-    });
-    state.llmDirty = false;
-    elements.llmApiKey.value = "";
-    elements.llmSettingsStatus.textContent = "已保存，下一次任务开始使用。";
-    renderJournalAdmin();
-  } catch (error) {
-    elements.llmSettingsStatus.classList.add("is-error");
-    elements.llmSettingsStatus.textContent = `保存失败：${error.message}`;
-    elements.llmSave.disabled = false;
-  }
-}
-
-async function disableLlmSettings() {
-  if (!window.confirm("确定停用翻译与标题过滤？论文采集仍会继续。")) return;
-  try {
-    state.admin = await adminRequest("/llm/disable", { method: "POST", body: "{}" });
-    state.llmDirty = false;
-    elements.llmSettingsStatus.textContent = "已停用。";
-    renderJournalAdmin();
-  } catch (error) {
-    elements.llmSettingsStatus.classList.add("is-error");
-    elements.llmSettingsStatus.textContent = `停用失败：${error.message}`;
-  }
-}
-
-function renderTitleFilter() {
-  const payload = state.admin;
-  const journals = payload?.journals || state.journals;
-  const running = payload?.job?.status === "running";
-  const available = Boolean(payload);
-  const groups = groupBy(journals, "group");
-  elements.titleFilterSummary.textContent = available
-    ? `${state.filterJournalIds.size} / ${journals.length} 本启用`
-    : "管理服务暂不可用";
-  elements.titleFilterSave.disabled = !available || running || !state.filterDirty;
-  elements.titleFilterList.innerHTML = Object.entries(groups).map(([group, entries], index) => `
-    <details class="settings-journal-group" ${index === 0 ? "open" : ""}>
-      <summary class="settings-group-heading"><span>${escapeHTML(group)}</span><span>${entries.length}</span></summary>
-      ${entries.map((journal) => `
-        <label class="settings-journal-option">
-          <input type="checkbox" data-title-filter-journal="${escapeHTML(journal.id)}" ${state.filterJournalIds.has(journal.id) ? "checked" : ""} ${!available || running ? "disabled" : ""} />
-          <span><strong>${escapeHTML(journal.name)}</strong><small>${journal.origin === "user" ? "用户添加" : "镜像默认"}</small></span>
-        </label>`).join("")}
-    </details>`).join("");
-  elements.titleFilterList.querySelectorAll("[data-title-filter-journal]").forEach((input) => {
-    input.addEventListener("change", () => {
-      if (input.checked) state.filterJournalIds.add(input.dataset.titleFilterJournal);
-      else state.filterJournalIds.delete(input.dataset.titleFilterJournal);
-      state.filterDirty = true;
-      elements.titleFilterStatus.textContent = "设置尚未保存";
-      elements.titleFilterSummary.textContent = `${state.filterJournalIds.size} / ${journals.length} 本启用`;
-      elements.titleFilterSave.disabled = false;
-    });
-  });
-}
-
-function renderExcludedPapers() {
-  const running = state.admin?.job?.status === "running";
-  const records = state.excludedRecords;
-  const categoryLabels = {
-    medicine: "医学", biology: "生物", chemistry: "化学", humanities: "文学/人文",
-  };
-  elements.excludedPaperSummary.textContent = records.length
-    ? `${records.length} 篇可恢复`
-    : "没有被过滤的论文";
-  elements.excludedPaperRestore.disabled = running || state.excludedSelection.size === 0;
-  elements.excludedPaperList.innerHTML = records.map((record) => {
-    const journal = state.journalMap.get(record.journal_id);
-    const confidence = Number.isFinite(Number(record.filter_confidence))
-      ? `${Math.round(Number(record.filter_confidence) * 100)}%`
-      : "置信度未知";
-    return `<label class="excluded-paper-item">
-      <input type="checkbox" data-excluded-paper="${escapeHTML(record.filter_id)}" ${state.excludedSelection.has(record.filter_id) ? "checked" : ""} ${running ? "disabled" : ""} />
-      <span><strong>${escapeHTML(record.title_en)}</strong><small>${escapeHTML(journal?.name || record.journal_id)} · ${escapeHTML(record.published_date || "日期待核实")} · ${escapeHTML(categoryLabels[record.filter_category] || record.filter_category)} ${confidence}</small></span>
-    </label>`;
-  }).join("");
-  elements.excludedPaperList.querySelectorAll("[data-excluded-paper]").forEach((input) => {
-    input.addEventListener("change", () => {
-      if (input.checked) state.excludedSelection.add(input.dataset.excludedPaper);
-      else state.excludedSelection.delete(input.dataset.excludedPaper);
-      elements.excludedPaperRestore.disabled = state.excludedSelection.size === 0;
-    });
-  });
-}
-
-async function loadExcludedPapers() {
-  try {
-    const payload = await adminRequest("/filter/excluded");
-    state.excludedRecords = payload.records || [];
-    const validIds = new Set(state.excludedRecords.map((record) => record.filter_id));
-    state.excludedSelection = new Set(
-      [...state.excludedSelection].filter((id) => validIds.has(id))
-    );
-    elements.excludedPaperStatus.classList.remove("is-error");
-    elements.excludedPaperStatus.textContent = "";
-  } catch (error) {
-    state.excludedRecords = [];
-    elements.excludedPaperStatus.classList.add("is-error");
-    elements.excludedPaperStatus.textContent = `读取失败：${error.message}`;
-  }
-  renderExcludedPapers();
-}
-
-async function restoreExcludedPapers() {
-  const ids = [...state.excludedSelection];
-  if (!ids.length) return;
-  elements.excludedPaperStatus.classList.remove("is-error");
-  try {
-    state.admin = await adminRequest("/filter/restore", {
-      method: "POST",
-      body: JSON.stringify({ ids }),
-    });
-    state.adminWasRunning = true;
-    elements.excludedPaperStatus.textContent = "正在恢复并处理翻译…";
-    renderJournalAdmin();
-    scheduleAdminPoll();
-  } catch (error) {
-    elements.excludedPaperStatus.classList.add("is-error");
-    elements.excludedPaperStatus.textContent = `恢复失败：${error.message}`;
-  }
-}
-
-async function adminRequest(path, options = {}) {
-  const response = await fetch(`${ADMIN_API}${path}`, {
-    cache: "no-store",
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options,
-  });
-  let payload = {};
-  try { payload = await response.json(); } catch (error) { /* Keep the status error below. */ }
-  if (!response.ok) throw new Error(payload.error || `服务返回 ${response.status}`);
-  return payload;
-}
-
-function scheduleAdminPoll() {
-  if (adminPollTimer) clearTimeout(adminPollTimer);
-  if (state.admin?.job?.status !== "running") return;
-  adminPollTimer = setTimeout(() => loadJournalAdmin(true), 2500);
-}
-
-async function loadJournalAdmin(fromPoll = false) {
-  try {
-    const payload = await adminRequest("/journals");
-    const wasRunning = state.adminWasRunning;
-    if (!state.filterDirty) {
-      state.filterJournalIds = new Set(payload.filter_journal_ids || []);
-    }
-    state.admin = payload;
-    state.adminWasRunning = payload.job?.status === "running";
-    renderJournalAdmin();
-    if (fromPoll && wasRunning && payload.job?.status === "success") {
-      window.location.reload();
-      return;
-    }
-    scheduleAdminPoll();
-  } catch (error) {
-    state.admin = null;
-    renderJournalAdmin();
-  }
-}
-
-async function saveTitleFilter() {
-  elements.titleFilterSave.disabled = true;
-  elements.titleFilterStatus.classList.remove("is-error");
-  elements.titleFilterStatus.textContent = "正在保存…";
-  try {
-    state.admin = await adminRequest("/filter", {
-      method: "POST",
-      body: JSON.stringify({ journal_ids: [...state.filterJournalIds] }),
-    });
-    state.filterJournalIds = new Set(state.admin.filter_journal_ids || []);
-    state.filterDirty = false;
-    elements.titleFilterStatus.textContent = "已保存，将从下一次采集的新论文开始生效。";
-    renderJournalAdmin();
-  } catch (error) {
-    elements.titleFilterStatus.classList.add("is-error");
-    elements.titleFilterStatus.textContent = `保存失败：${error.message}`;
-    elements.titleFilterSave.disabled = false;
-  }
-}
-
-async function addJournalAndRun() {
-  const name = elements.journalNameInput.value.trim();
-  if (!name) {
-    elements.journalNameInput.focus();
-    return;
-  }
-  elements.journalAddRun.disabled = true;
-  elements.journalAdminStatus.textContent = "正在匹配期刊信息…";
-  try {
-    state.admin = await adminRequest("/journals", {
-      method: "POST",
-      body: JSON.stringify({ name, filter_enabled: elements.journalAddFilter.checked }),
-    });
-    elements.journalNameInput.value = "";
-    elements.journalAddFilter.checked = false;
-    state.adminWasRunning = true;
-    renderJournalAdmin();
-    scheduleAdminPoll();
-  } catch (error) {
-    elements.journalAdminStatus.classList.add("is-error");
-    elements.journalAdminStatus.textContent = `添加失败：${error.message}`;
-    elements.journalAddRun.disabled = false;
-  }
-}
-
-async function deleteJournal(journalId, journalName) {
-  if (!window.confirm(`确定删除「${journalName}」？该期刊的三个月论文、补录、归档状态及无引用翻译缓存都会删除。`)) return;
-  try {
-    state.admin = await adminRequest(`/journals/${encodeURIComponent(journalId)}`, { method: "DELETE" });
-    state.adminWasRunning = true;
-    renderJournalAdmin();
-    scheduleAdminPoll();
-  } catch (error) {
-    elements.journalAdminStatus.classList.add("is-error");
-    elements.journalAdminStatus.textContent = `删除失败：${error.message}`;
-  }
-}
-
-async function runDailyNow() {
-  try {
-    state.admin = await adminRequest("/run", { method: "POST", body: "{}" });
-    state.adminWasRunning = true;
-    renderJournalAdmin();
-    scheduleAdminPoll();
-  } catch (error) {
-    elements.journalAdminStatus.classList.add("is-error");
-    elements.journalAdminStatus.textContent = `运行失败：${error.message}`;
-  }
-}
-
-function renderSettings() {
-  const groups = groupBy(state.journals, "group");
-  const visibleCount = visibleJournals().length;
-  elements.settingsJournalSummary.textContent = `显示 ${visibleCount} / ${state.journals.length} 本`;
-  elements.settingsJournalList.innerHTML = Object.entries(groups).map(([group, journals], index) => `
-    <details class="settings-journal-group" data-settings-group="${escapeHTML(group)}" ${(state.settingsGroups[group] ?? index === 0) ? "open" : ""}>
-      <summary class="settings-group-heading"><span>${escapeHTML(group)}</span><span>${journals.length}</span></summary>
-      ${journals.map((journal) => `
-        <label class="settings-journal-option">
-          <input type="checkbox" data-journal-visibility="${escapeHTML(journal.id)}" ${!state.hidden.has(journal.id) ? "checked" : ""} />
-          <span><strong>${escapeHTML(journal.name)}</strong><small>${escapeHTML(journal.cas?.zone ?? "-")}区 · ${escapeHTML(journal.cas?.category ?? "")}</small></span>
-        </label>`).join("")}
-    </details>`).join("");
-  elements.settingsJournalList.querySelectorAll(".settings-journal-group").forEach((group) => {
-    group.addEventListener("toggle", () => {
-      state.settingsGroups[group.dataset.settingsGroup] = group.open;
-      writeStorage(STORAGE_KEYS.settingsGroups, JSON.stringify(state.settingsGroups));
-    });
-  });
-  elements.settingsJournalList.querySelectorAll("[data-journal-visibility]").forEach((input) => {
-    input.addEventListener("change", () => {
-      const journalId = input.dataset.journalVisibility;
-      if (!input.checked && visibleJournals().length <= 1) {
-        input.checked = true;
-        return;
-      }
-      if (input.checked) {
-        state.hidden.delete(journalId);
-      } else {
-        state.hidden.add(journalId);
-      }
-      normalizeJournalPreferences();
-      persistHiddenJournals();
-      renderSettings();
-      renderCurrent();
-      syncURL();
-    });
-  });
-  updateSettingsArchiveUI();
-}
-
-function journalHeader(journal, count, options = {}) {
-  const metric = journal.impact_factor || {};
-  const hasMetric = metric.value !== undefined && metric.value !== null && metric.value !== "";
-  const control = options.journalControl || "";
-  return `
-    <header class="journal-header">
-      <div>
-        <h2 class="journal-name">${escapeHTML(journal.name)}</h2>
-        <div class="journal-meta">
-          <span class="meta-badge zone">中科院 ${escapeHTML(journal.cas?.zone ?? "-")} 区 · ${escapeHTML(journal.cas?.category ?? "")}</span>
-          ${journal.cas?.top ? '<span class="meta-badge top">Top</span>' : ""}
-          ${hasMetric ? `<span class="meta-badge">IF ${escapeHTML(metric.value)} · ${escapeHTML(metric.year || "年份待核实")}</span>` : ""}
-        </div>
-      </div>
-      <div class="journal-actions">
-        <span class="journal-count">${count} 篇</span>
-        ${control}
-      </div>
-    </header>`;
-}
-
-// 期刊级「全部已读」勾选：勾上即把本刊当前列表整批归档
-function journalArchiveControl(journalId) {
-  return `<label class="journal-check" title="勾选表示本刊这些论文都已读过，整批归档">
-    <input type="checkbox" data-archive-journal="${escapeHTML(journalId)}" />
-    <span>全部已读</span>
-  </label>`;
-}
-
-function articleMarkup(article, supplementType = null, options = {}) {
-  const href = escapeHTML(article.url || "#");
-  // 只要有中文标题就展示；归档条目可能不带 translation_status（历史数据兼容）
-  const translated = Boolean(article.title_zh);
-  // 补录视图传 "auto"：按条目自身的 supplement_type 决定附加说明
-  const kind = supplementType === "auto" ? (article.supplement_type || "") : (supplementType || "");
-  const detail = kind === "late_additions"
-    ? `归档日期 ${escapeHTML(article.archived_date || article.published_date || "未知")}`
-    : kind === "date_pending" ? `日期精度 ${escapeHTML(article.date_precision || "缺失")}` : "";
-  const control = options.control || null;
-  const footnote = options.footnote || "";
-  const favorite = favoriteControl(article);
-  return `<li class="article-item has-favorite${control ? " has-check" : ""}">
-    ${control || ""}
-    <div class="article-body">
-      ${translated ? `<a class="article-title-zh" href="${href}" target="_blank" rel="noopener noreferrer">${escapeHTML(article.title_zh)}</a>` : `<span class="pending-translation">中文翻译处理中</span>`}
-      <a class="article-title-en" href="${href}" target="_blank" rel="noopener noreferrer">${escapeHTML(article.title_en || "无标题")}</a>
-      ${(detail || article.doi || footnote) ? `<div class="article-footnote">${detail ? `<span>${detail}</span>` : ""}${article.doi ? `<span>DOI ${escapeHTML(article.doi)}</span>` : ""}${footnote ? `<span>${footnote}</span>` : ""}</div>` : ""}
-    </div>
-    ${favorite}
-  </li>`;
-}
-
-function isFavorite(articleId) {
-  return Boolean(articleId && state.archive.favorites[articleId]);
-}
-
-function favoriteControl(article) {
-  const articleId = article.id || "";
-  const active = isFavorite(articleId);
-  const pending = state.pendingFavorites.has(articleId);
-  const label = active ? "取消收藏" : "收藏这篇论文";
-  return `<button class="favorite-button${active ? " is-active" : ""}" type="button"
-    data-favorite-article="${escapeHTML(articleId)}" aria-pressed="${active}" aria-label="${label}" title="${label}"${pending ? " disabled" : ""}>
-    <i data-lucide="star"></i>
+function journalArchiveControl(journalId, count) {
+  const disabled = state.loading || state.failedDates.length || state.busy || !state.archiveAvailable || !count;
+  const journalName = state.journals.find(journal => journal.id === journalId)?.name || journalId;
+  const scope = `Archive all ${countLabel(count, 'unread paper')} in ${journalName}, including other pages and search results.`;
+  return `<button class="button journal-archive-button" type="button" data-archive-journal="${escape(journalId)}"
+    aria-label="${escape(scope)}" title="${escape(disabled && (state.loading || state.failedDates.length) ? 'Load all paper data before archiving a journal.' : scope)}" ${disabled ? 'disabled' : ''}>
+    ${icon('archive')}<span>Archive all <span class="count">${countFormatter.format(count)}</span></span>
   </button>`;
 }
 
-// 单篇「已读」勾选
-function articleArchiveControl(articleId) {
-  return `<label class="article-check" title="勾选表示这篇已读过，归档后可在「已归档」中找回">
-    <input type="checkbox" data-archive-article="${escapeHTML(articleId)}"${state.pendingArchives.has(articleId) ? " disabled" : ""} />
-    <span class="sr-only">标记为已读</span>
-  </label>`;
+function articleOrder(a, b) {
+  const compare = (x, y) => x === y ? 0 : x < y ? -1 : 1;
+  // Always use publication dates; undated papers follow dated papers.
+  const publishedDate = article => article.published_date || article.date || article.archived_date || '';
+  return compare(a.journal_id || '', b.journal_id || '') || compare(publishedDate(b), publishedDate(a)) || compare(a.id, b.id);
 }
 
-function renderGrouped(articles, supplementType = null, options = {}) {
-  const archivable = Boolean(options.archivable);
-  const visible = articles.filter((article) => (
-    state.selected.has(article.journal_id)
-    && article.content_type === "article"
-    && !(archivable && isArchived(article.id))
-  ));
+function badges(journal) {
+  const m = journal.impact_factor || {};
+  const status = ({
+    seeded_unverified: 'not checked',
+    check_failed: 'check failed',
+    not_found: 'not confirmed',
+    year_unverified: 'update unconfirmed'
+  })[m.status] || (m.checked_at ? 'not confirmed' : 'not checked');
+  const metric = m.value === null || m.value === undefined ? `IF ${status}` : `IF ${escape(m.value)} · ${escape(m.year || 'year unknown')}${m.status==='verified'?'':' · '+status}`;
+  return `<div class="journal-badges"><span class="badge zone" lang="zh-CN">中科院 ${escape(journal.cas?.zone || '—')} 区 · ${escape(journal.cas?.category || '待核实')}</span>${journal.cas?.top?'<span class="badge top">Top</span>':''}<span class="badge" title="${escape(m.checked_at?'Checked '+time(m.checked_at):'IF not checked')}">${metric}</span>${journal.group?`<span class="badge" lang="zh-CN">${escape(journal.group)}</span>`:''}</div>`;
+}
+
+function paperMarkup(a) {
+  const favorite = Boolean(state.archive.favorites[a.id]);
+  const href = escape(safeURL(a.url || (a.doi ? `https://doi.org/${a.doi}` : '')));
+  return `<li class="article-item"><label class="article-check"><input type="checkbox" data-select="${escape(a.id)}" ${state.selection.has(a.id)?'checked':''} ${state.busy?'disabled':''} /><span class="sr-only">Select ${escape(a.title_en)}</span></label><div class="article-body">${a.title_zh?`<a class="article-title" lang="zh-CN" href="${href}" target="_blank" rel="noopener noreferrer">${escape(a.title_zh)}</a>`:''}<a class="article-title-en${a.title_zh?'':' primary-title'}" href="${href}" target="_blank" rel="noopener noreferrer">${escape(a.title_en)}</a><div class="article-footnote"><span>${escape(a.published_date || a.date || '')}</span>${!a.title_zh?'<span>Translation pending</span>':''}</div></div><div class="article-actions"><button class="article-action${favorite?' is-favorite':''}" data-favorite="${escape(a.id)}" aria-label="${favorite?'Remove favorite':'Favorite paper'}" aria-pressed="${favorite}" title="${favorite?'Remove favorite':'Favorites'}" ${state.busy||!state.archiveAvailable?'disabled':''}>${icon('star')}</button></div></li>`;
+}
+
+function renderSelection() {
+  $('selection-bar').hidden = state.selection.size === 0;
+  $('selection-count').textContent = `${state.selection.size} selected`;
+  $('bulk-favorite').disabled = state.busy || !state.archiveAvailable;
+  document.querySelectorAll('[data-select]').forEach(input => input.checked = state.selection.has(input.dataset.select));
+  document.querySelectorAll('[data-select-group]').forEach(input => {
+    const ids = [...input.closest('.journal-section').querySelectorAll('[data-select]')].map(x => x.dataset.select);
+    input.checked = ids.every(id => state.selection.has(id));
+    input.indeterminate = !input.checked && ids.some(id => state.selection.has(id));
+  });
+  updateStickyOffsets();
+}
+
+function renderCounts() {
+  $('journal-count').textContent = state.journals.length || '';
+  $('favorite-count').textContent = Object.keys(state.archive.favorites).length || '';
+}
+
+function renderSaveProgress() {
+  const progress = state.saveProgress;
+  $('save-status').hidden = !progress;
+  if (progress) {
+    $('save-label').textContent = progress.phase === 'checking' ? 'Checking saved papers…' : ({
+      add: 'Archiving papers…',
+      favorite: 'Saving favorites…',
+      unfavorite: 'Removing favorites…'
+    })[progress.action] || 'Saving changes…';
+    $('save-count').textContent = `${countFormatter.format(progress.confirmed)} / ${countLabel(progress.total, 'paper')} confirmed`;
+    $('save-progress').setAttribute('aria-valuemax', progress.total);
+    $('save-progress').setAttribute('aria-valuenow', progress.confirmed);
+    $('save-fill').style.transform = `scaleX(${progress.confirmed / progress.total})`;
+    $('save-detail').textContent = progress.phase === 'checking' ?
+      'Checking the server. Keep this page open.' : progress.slow ?
+      `Slow connection · Batch ${progress.batch} of ${progress.batches}. Keep this page open.` :
+      `Batch ${progress.batch} of ${progress.batches} · Keep this page open.`;
+  }
+  updateStickyOffsets();
+}
+
+function renderReading() {
+  if (!state.manifest) return;
+  renderSaveProgress();
+  const favorites = state.view === 'favorites';
+  $('paper-search').placeholder = favorites ? 'Search favorite titles…' : 'Search titles…';
+  $('paper-search').setAttribute('aria-label', favorites ? 'Search favorite titles in English or Chinese' : 'Search titles in English or Chinese');
+  $('paper-search-form').title = favorites ? 'All favorites' : `${state.manifest.retention.start} — ${state.manifest.retention.end}`;
+  $('load-status').textContent = state.loading ? 'Loading…' : state.failedDates.length ? `${countLabel(state.failedDates.length, 'day')} unavailable. Results incomplete.` : '';
+  if (state.busy && !state.saveProgress) $('load-status').textContent += `${$('load-status').textContent ? ' · ' : ''}Saving…`;
+  $('load-status').hidden = !$('load-status').textContent;
+  if (state.failedDates.length && !state.loading) {
+    const retry = document.createElement('button');
+    retry.className = 'button quiet';
+    retry.textContent = 'Retry';
+    retry.addEventListener('click', () => loadWindow());
+    $('load-status').append(retry);
+  }
+  const records = filteredArticles(),
+    pages = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
+  state.page = Math.min(Math.max(state.page, 1), pages);
+  const visible = records.slice((state.page - 1) * PAGE_SIZE, state.page * PAGE_SIZE);
+  const visibleCounts = new Map();
+  const unreadCounts = new Map();
+  for (const article of records) visibleCounts.set(article.journal_id, (visibleCounts.get(article.journal_id) || 0) + 1);
+  if (!favorites)
+    for (const article of unreadArticles()) unreadCounts.set(article.journal_id, (unreadCounts.get(article.journal_id) || 0) + 1);
+  $('results-summary').textContent = countLabel(records.length, favorites ? 'favorite' : 'paper');
+  $('results-summary').hidden = favorites && !state.search;
+  $('select-visible').disabled = !visible.length || state.busy;
+  $('paper-list').setAttribute('aria-busy', String(state.loading || state.busy));
   if (!visible.length) {
-    const archiveHint = Object.keys(state.archive.cleared_items).length
-      ? "已读论文已从列表移出；清空的归档可在右上角设置中恢复显示。"
-      : "可到「已归档」查看或恢复为未读。";
-    elements.list.innerHTML = `<div class="empty-state"><div><i data-lucide="inbox"></i><strong>${archivable ? "本日论文已全部归档" : "当前范围没有论文"}</strong><span>${archivable ? archiveHint : "可调整日期或期刊筛选。"}</span></div></div>`;
-    renderIcons();
-    return 0;
-  }
-  const groups = visible.reduce((all, article) => {
-    (all[article.journal_id] ||= []).push(article); return all;
-  }, {});
-  elements.list.innerHTML = Object.entries(groups).sort(([a], [b]) => {
-    const left = state.journalMap.get(a)?.name || a;
-    const right = state.journalMap.get(b)?.name || b;
-    return left.localeCompare(right);
-  }).map(([journalId, items]) => {
-    const journal = state.journalMap.get(journalId);
-    if (!journal) return "";
-    return `<section class="journal-section" id="journal-${escapeHTML(journalId)}">
-      ${journalHeader(journal, items.length, { journalControl: archivable ? journalArchiveControl(journalId) : "" })}
-      <ol class="article-list">${items.map((item) => articleMarkup(item, supplementType, {
-        control: archivable ? articleArchiveControl(item.id) : null,
-      })).join("")}</ol>
-    </section>`;
-  }).join("");
-  renderIcons();
-  return visible.length;
-}
-
-function countVisible(articles) {
-  return articles.filter((article) => (
-    state.selected.has(article.journal_id)
-    && article.content_type === "article"
-    && !isArchived(article.id)
-  )).length;
-}
-
-function countArchived(articles) {
-  return articles.filter((article) => (
-    state.selected.has(article.journal_id)
-    && article.content_type === "article"
-    && isArchived(article.id)
-  )).length;
-}
-
-function renderSourceFailures(day) {
-  const failures = Object.values(day?.journal_status || {}).filter((status) => status.status === "failed").length;
-  elements.status.hidden = failures === 0;
-  if (failures) {
-    elements.status.innerHTML = `<i data-lucide="triangle-alert"></i><span>${failures} 本期刊本次获取失败，现有数据已保留。</span>`;
-  } else {
-    elements.status.replaceChildren();
-  }
-}
-
-// 每日论文：固定展示昨日（manifest.default_date），日期不可更改
-function renderDaily() {
-  const date = state.manifest.default_date;
-  const articles = state.dailyDay?.articles || [];
-  const count = countVisible(articles);
-  const archivedCount = countArchived(articles);
-  const archivedNote = archivedCount ? ` · 已归档 ${archivedCount} 篇` : "";
-  elements.dailyDate.textContent = date ? formatDate(date) : "昨日";
-  elements.heading.innerHTML = `<p>${count} 篇新论文 · 按首次在线发表日期归档${archivedNote}</p>`;
-  elements.summary.textContent = state.manifest.updated_at ? `最近更新 ${formatDateTime(state.manifest.updated_at)}` : "";
-  renderSourceFailures(state.dailyDay);
-  renderGrouped(articles, null, { archivable: true });
-}
-
-// 历史及补录：历史（按日浏览）/ 补录（迟到补录 + 日期待核实）
-function renderHistory() {
-  elements.historyDateControls.hidden = state.mode === "supplements";
-  if (state.mode === "supplements") return renderSupplements();
-  const articles = state.day?.articles || [];
-  const count = countVisible(articles);
-  const archivedCount = countArchived(articles);
-  const archivedNote = archivedCount ? ` · 已归档 ${archivedCount} 篇` : "";
-  elements.heading.innerHTML = `<p>${count} 篇论文 · 历史记录${archivedNote}</p>`;
-  renderSourceFailures(state.day);
-  renderGrouped(articles, null, { archivable: true });
-}
-
-function renderSupplements() {
-  const late = state.supplements?.late_additions || [];
-  const pending = state.supplements?.date_pending || [];
-  const articles = [...late, ...pending];
-  elements.heading.replaceChildren();
-  elements.status.hidden = true;
-  elements.status.replaceChildren();
-  renderGrouped(articles, "auto", { archivable: true });
-}
-
-function isArchived(articleId) {
-  return Boolean(articleId && (state.archive.items[articleId] || state.archive.cleared_items[articleId]));
-}
-
-function archiveItemsVisible() {
-  return Object.values(state.archive.items)
-    .filter((item) => state.selected.has(item.journal_id))
-    .filter((item) => !state.archiveDate || String(item.date || "") === state.archiveDate)
-    .sort((left, right) => String(right.archived_at || "").localeCompare(String(left.archived_at || "")));
-}
-
-function renderArchive() {
-  const items = archiveItemsVisible();
-  elements.heading.innerHTML = `<p>${items.length} 篇已读论文</p>`;
-  elements.status.hidden = true;
-  elements.status.replaceChildren();
-
-  if (!items.length) {
-    const note = Object.keys(state.archive.cleared_items).length
-      ? "已清空的归档仍保持已读，可在右上角设置中恢复显示。"
-      : "在「每日论文」或「历史」里勾选读过的论文、或整本期刊的「全部已读」即可归档。";
-    elements.list.innerHTML = `<div class="empty-state"><div><i data-lucide="archive"></i><strong>这一天还没有已归档论文</strong><span>${note}</span></div></div>`;
-    updateArchiveSelectionUI();
-    renderIcons();
-    return;
-  }
-
-  const groups = items.reduce((all, item) => {
-    (all[item.journal_id] ||= []).push(item); return all;
-  }, {});
-
-  elements.list.innerHTML = Object.entries(groups).sort(([a], [b]) => {
-    const nameA = state.journalMap.get(a)?.name || a;
-    const nameB = state.journalMap.get(b)?.name || b;
-    return nameA.localeCompare(nameB);
-  }).map(([journalId, entries]) => {
-    const journal = state.journalMap.get(journalId);
-    const name = journal?.name || journalId;
-    const allSelected = entries.every((entry) => state.archiveSelection.has(entry.id));
-    return `<section class="journal-section" id="journal-${escapeHTML(journalId)}">
-      ${journalHeader(journal || { name, cas: {}, impact_factor: {} }, entries.length, {
-        journalControl: `<label class="journal-check" title="选择本刊全部已归档论文">
-          <input type="checkbox" data-archive-group="${escapeHTML(journalId)}" ${allSelected ? "checked" : ""} />
-          <span>选择本刊</span>
-        </label>`,
-      })}
-      <ol class="article-list">${entries.map((entry) => articleMarkup(entry, null, {
-        control: `<label class="article-check" title="选择这篇以恢复">
-          <input type="checkbox" data-archive-item="${escapeHTML(entry.id)}" ${state.archiveSelection.has(entry.id) ? "checked" : ""} />
-          <span class="sr-only">选择这篇</span>
-        </label>`,
-        footnote: entry.archived_at ? `归档于 ${escapeHTML(formatDateTime(entry.archived_at))}` : "",
-      })).join("")}</ol>
-    </section>`;
-  }).join("");
-  updateArchiveSelectionUI();
-  renderIcons();
-}
-
-function favoriteItemsVisible() {
-  return Object.values(state.archive.favorites)
-    .filter((item) => state.selected.has(item.journal_id))
-    .sort((left, right) => String(right.favorited_at || "").localeCompare(String(left.favorited_at || "")));
-}
-
-function renderFavorites() {
-  const items = favoriteItemsVisible();
-  elements.heading.replaceChildren();
-  elements.status.hidden = true;
-  elements.status.replaceChildren();
-  if (!items.length) {
-    elements.list.innerHTML = '<div class="empty-state"><div><i data-lucide="star"></i><strong>还没有收藏论文</strong><span>点击论文题目右侧的星标，即可在这里集中查看。</span></div></div>';
-    renderIcons();
-    return;
-  }
-  const groups = items.reduce((all, item) => {
-    (all[item.journal_id] ||= []).push(item); return all;
-  }, {});
-  elements.list.innerHTML = Object.entries(groups).sort(([a], [b]) => {
-    const nameA = state.journalMap.get(a)?.name || a;
-    const nameB = state.journalMap.get(b)?.name || b;
-    return nameA.localeCompare(nameB);
-  }).map(([journalId, entries]) => {
-    const journal = state.journalMap.get(journalId);
-    const name = journal?.name || journalId;
-    return `<section class="journal-section" id="journal-${escapeHTML(journalId)}">
-      ${journalHeader(journal || { name, cas: {}, impact_factor: {} }, entries.length)}
-      <ol class="article-list">${entries.map((entry) => articleMarkup(entry, null, {
-        footnote: entry.favorited_at ? `收藏于 ${escapeHTML(formatDateTime(entry.favorited_at))}` : "",
-      })).join("")}</ol>
-    </section>`;
-  }).join("");
-  renderIcons();
-}
-
-function updateArchiveSelectionUI() {
-  const count = state.archiveSelection.size;
-  elements.archiveSelection.textContent = count ? `已选 ${count} 篇` : "未选择";
-  elements.archiveRestore.disabled = count === 0 || Boolean(state.archiveOperation);
-  elements.archiveRestore.textContent = count ? `恢复所选 (${count})` : "恢复所选";
-}
-
-function renderArchiveProgress() {
-  const operation = state.archiveOperation;
-  const busy = Boolean(operation);
-  const count = operation?.count || 0;
-  elements.list.setAttribute("aria-busy", String(busy));
-  if (elements.archiveProgress) {
-    elements.archiveProgress.hidden = !busy;
-    if (busy) {
-      elements.archiveProgress.innerHTML = `<span class="operation-spinner" aria-hidden="true"></span><strong>正在清空归档</strong><span>正在处理 ${count} 篇论文，请勿关闭或刷新页面。</span>`;
-    } else {
-      elements.archiveProgress.replaceChildren();
+    let title = state.loading ? 'Loading…' : favorites ? 'No favorites yet' : state.failedDates.length ? 'No papers loaded' : 'All caught up';
+    let message = !state.loading && favorites ? 'Star a paper to save it.' : '';
+    if (!state.loading && state.search) {
+      title = 'No matches';
+      message = 'Try another title.';
     }
+    if (!state.archiveAvailable && favorites) {
+      title = 'Favorites unavailable';
+      message = 'Reload to retry.';
+    }
+    $('paper-list').innerHTML = `<div class="empty-state"><strong>${title}</strong>${message ? `<span>${message}</span>` : ''}</div>`;
+  } else {
+    const groups = new Map();
+    for (const a of visible) {
+      if (!groups.has(a.journal_id)) groups.set(a.journal_id, []);
+      groups.get(a.journal_id).push(a);
+    }
+    $('paper-list').innerHTML = [...groups].map(([id, items]) => {
+      const j = [...state.journals, ...state.unfollowedJournals].find(j => j.id === id) || {
+        name: id
+      };
+      return `<section class="journal-section"><header class="journal-header${favorites ? ' is-favorites' : ''}"><div><h2 class="journal-name">${escape(j.name)} <span class="count">${countLabel(visibleCounts.get(id), 'paper')}</span></h2>${badges(j)}</div><div class="journal-heading-actions">${favorites ? `<label class="journal-selection"><input type="checkbox" data-select-group="${escape(id)}" ${state.busy?'disabled':''} /><span class="sr-only">Select this journal on this page</span></label>` : journalArchiveControl(id, unreadCounts.get(id) || 0)}</div></header><ol class="article-list">${items.map(paperMarkup).join('')}</ol></section>`;
+    }).join('');
   }
-  elements.archiveSelectAll.disabled = busy;
-  elements.archiveNone.disabled = busy;
-  elements.archiveClear.disabled = busy || archiveItemsVisible().length === 0;
-  elements.archivePrevious.disabled = busy || !state.manifest || state.archiveDate <= state.manifest.retention.start;
-  elements.archiveNext.disabled = busy || !state.manifest || state.archiveDate >= state.manifest.retention.end;
-  elements.archiveYesterday.disabled = busy;
-  elements.archiveDatePicker.disabled = busy;
-  updateArchiveSelectionUI();
+  $('pagination').hidden = pages === 1;
+  $('page-number').textContent = `${state.page} / ${pages}`;
+  $('previous-page').disabled = state.page <= 1;
+  $('next-page').disabled = state.page >= pages;
+  renderSelection();
+  renderCounts();
 }
 
-function renderCurrent() {
-  if (state.view === "daily") renderDaily();
-  else if (state.view === "archive") renderArchive();
-  else if (state.view === "favorites") renderFavorites();
-  else renderHistory();
-  renderArchiveProgress();
-}
-
-// 保留在历史窗口 [start, end] 内
-function clampToRetention(value) {
-  const { start, end } = state.manifest.retention;
-  if (!value) return state.manifest.default_date;
-  if (value < start) return start;
-  if (value > end) return end;
-  return value;
-}
-
-// 历史视图：载入指定日期
-async function loadHistoryDay(value) {
-  const date = clampToRetention(value);
-  state.date = date;
-  elements.datePicker.value = date;
-  elements.previous.disabled = date <= state.manifest.retention.start;
-  elements.next.disabled = date >= state.manifest.retention.end;
-  setLoading();
-  try {
-    state.day = await fetchJSON(`data/days/${date}.json`, true) || { date, articles: [], journal_status: {} };
-    renderHistory();
-  } catch (error) {
-    elements.list.innerHTML = `<div class="error-state"><div><i data-lucide="cloud-off"></i><strong>无法加载该日数据</strong><span>${escapeHTML(error.message)}</span></div></div>`;
-    renderIcons();
-  }
-  syncURL();
-}
-
-// 每日视图：固定昨日数据，只加载一次
-async function loadDailyDay() {
-  const date = state.manifest.default_date;
-  try {
-    state.dailyDay = await fetchJSON(`data/days/${date}.json`, true) || { date, articles: [], journal_status: {} };
-  } catch (error) {
-    state.dailyDay = { date, articles: [], journal_status: {} };
-  }
-}
-
-// 已归档视图：切换归档日期
-function setArchiveDate(value) {
-  const date = clampToRetention(value);
-  state.archiveDate = date;
-  elements.archiveDatePicker.value = date;
-  elements.archivePrevious.disabled = date <= state.manifest.retention.start;
-  elements.archiveNext.disabled = date >= state.manifest.retention.end;
-  state.archiveSelection.clear();
-  renderArchive();
-  syncURL();
+function renderJournals() {
+  $('metrics-version').textContent = `CAS 2025 · ${state.journalData.metrics_checked_at ? 'IF checked ' + dataDate(state.journalData.metrics_checked_at) : 'IF not checked'}`;
+  $('metrics-version').title = `IF last checked: ${time(state.journalData.metrics_checked_at)}`;
+  $('following-list').innerHTML = state.journals.length ? state.journals.map(j => `<article class="following-item"><div><h3>${escape(j.name)}</h3>${badges(j)}${j.impact_factor?.checked_at ? `<p class="journal-data-date">Checked ${escape(dataDate(j.impact_factor.checked_at))}</p>` : ''}</div><button class="button quiet" data-unfollow="${escape(j.id)}" ${!state.admin||state.admin.job?.status==='running'?'disabled':''}>Unfollow</button></article>`).join('') : '<div class="empty-state"><strong>No journals yet</strong></div>';
+  renderCounts();
 }
 
 function switchView(view) {
-  state.view = view;
-  document.querySelectorAll(".view-tab").forEach((tab) => tab.classList.toggle("is-active", tab.dataset.view === view));
-  elements.dailyToolbar.hidden = view !== "daily";
-  elements.historyToolbar.hidden = view !== "history";
-  elements.archiveToolbar.hidden = view !== "archive";
-  // 历史视图按需加载所选日期（首次进入或数据尚未就绪）
-  if (view === "history" && !state.day) {
-    loadHistoryDay(state.date);
-    return;
-  }
-  renderCurrent();
+  state.view = ['journals', 'papers', 'favorites'].includes(view) ? view : 'papers';
+  state.selection.clear();
+  state.page = 1;
+  document.querySelectorAll('[data-view]').forEach(b => {
+    const active = b.dataset.view === state.view;
+    b.classList.toggle('is-active', active);
+    if (active) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  });
+  $('journals-view').hidden = state.view !== 'journals';
+  $('reading-view').hidden = state.view === 'journals';
+  $('page-title').textContent = {journals: 'Journals', papers: 'New papers', favorites: 'Favorites'}[state.view];
+  renderJournals();
+  renderReading();
   syncURL();
 }
 
-function renderUpdateStatus(manifest) {
-  if (!manifest) {
-    elements.updateStatus.innerHTML = '<span class="update-dot is-unknown" aria-hidden="true"></span><span class="update-label">数据 · 状态暂不可用</span>';
-    return;
-  }
-  const summary = manifest.collection_summary || {};
-  const okCount = Number(summary.ok || 0);
-  const failedCount = Number(summary.failed || 0);
-  const total = okCount + failedCount;
-  const stateKey = failedCount > 0 ? "failure" : "success";
-  const labels = { success: "正常", failure: "部分失败", unknown: "未知" };
-  const timestamp = manifest.updated_at;
-  const failedDetail = failedCount > 0 ? ` · 失败 ${failedCount}` : "";
-  elements.updateStatus.innerHTML = `
-    <span class="update-dot status-${stateKey}" aria-hidden="true"></span>
-    <span class="update-label">采集 · ${labels[stateKey]}</span>
-    <span class="update-detail">${okCount}/${total} 期刊${failedDetail}</span>
-    <time datetime="${escapeHTML(timestamp || "")}">${escapeHTML(formatDateTime(timestamp))}</time>`;
+function renderUpdate() {
+  const m = state.manifest;
+  if (!m) return;
+  const s = m.collection_summary || {},
+    ok = Number(s.ok || 0),
+    failed = Number(s.failed || 0);
+  const dateParts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date()).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+  const today = `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
+  const now = Date.now();
+  const one = new Date(`${today}T01:00:00+08:00`).getTime();
+  const thirteen = one + 12 * 60 * 60 * 1000;
+  const expected = now < one ? one - 12 * 60 * 60 * 1000 : now < thirteen ? one : thirteen;
+  const checked = Date.parse(m.collection_checked_at || m.updated_at || '');
+  const stale = !Number.isFinite(checked) || checked < expected;
+  const job = state.admin?.job;
+  const running = job?.status === 'running';
+  const task = ({metrics: 'IF update', add: 'Journal setup', delete: 'Unfollow', 'restore-filtered': 'Paper restore', 'gist-export': 'Gist export', 'gist-preview': 'Gist preview', 'gist-import': 'Gist import'})[job?.kind] || 'Paper update';
+  const active = ({metrics: 'Updating IF…', add: 'Adding journal…', delete: 'Unfollowing journal…', 'restore-filtered': 'Restoring papers…', 'gist-export': 'Uploading backup…', 'gist-preview': 'Checking backup…', 'gist-import': 'Importing data…'})[job?.kind] || 'Updating papers…';
+  const jobMessage = running ? active : job?.status === 'failed' ? `${task} failed` : job?.status === 'interrupted' ? `${task} interrupted` : state.adminLoaded && !state.admin ? 'Management offline' : '';
+  const jobMarkup = jobMessage ? `<span class="job-status${running ? '' : ' failure'}">${running ? '<span class="saving-spinner" aria-hidden="true"></span>' : ''}${escape(jobMessage)}</span>` : '';
+  $('update-status').title = `Collection: ${m.default_date} · Updated: ${time(m.updated_at)}`;
+  $('update-status').innerHTML = `<span class="status-dot${failed||stale?' is-warning':''}" aria-hidden="true"></span><time datetime="${escape(m.updated_at || '')}">Updated ${escape(compactTime(m.updated_at))}</time><span>${ok}/${ok+failed} journals</span>${ok+failed===0?'<span>Not collected</span>':''}${stale&&!jobMessage?'<span class="failure">Delayed</span>':''}${failed?`<span class="failure">${failed} failed</span>`:''}${jobMarkup}`;
 }
-
-// 请求失败分类：请求本身有错（重试无意义）标 fatal，网络类失败可重试
-function fatalError(message) {
-  const error = new Error(message);
-  error.fatal = true;
-  return error;
+async function loadMetadata() {
+  const [manifest, journalData] = await Promise.all([request('data/manifest.json'), request('data/journals.json')]);
+  state.manifest = manifest;
+  state.journalData = journalData;
+  state.journals = journalData.journals || [];
+  state.unfollowedJournals = journalData.unfollowed_journals || [];
+  renderUpdate();
+  renderJournals();
 }
-
-const ARCHIVE_TIMEOUT_MS = 20000;
-const ARCHIVE_ATTEMPTS = 2;
-
-// Archive mutations update the local view before the round trip completes.
-// Prefer: return=minimal keeps the acknowledgement small on remote installs.
-async function postArchiveOnce(payload, body, options = {}) {
-  const controller = typeof AbortController === "function" ? new AbortController() : null;
-  const timer = controller ? setTimeout(() => controller.abort(), ARCHIVE_TIMEOUT_MS) : null;
-  try {
-    const response = await fetch(ARCHIVE_API, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.minimal ? { Prefer: "return=minimal" } : {}),
-      },
-      cache: "no-store",
-      body,
-      ...(controller ? { signal: controller.signal } : {}),
-    });
-    if (response.ok) return response.json();
-    let detail = `服务返回 ${response.status}`;
-    try {
-      const parsed = await response.json();
-      if (parsed && parsed.error) detail = parsed.error;
-    } catch (error) { /* 非 JSON 响应，保留状态码 */ }
-    // 4xx 是请求/数据问题，重试没有意义
-    if (response.status < 500) throw fatalError(detail);
-    throw new Error(`${detail}（服务端错误，已重试）`);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
-async function postArchive(payload, options = {}) {
-  const body = JSON.stringify(payload);
-  let lastError = null;
-  for (let attempt = 1; attempt <= ARCHIVE_ATTEMPTS; attempt += 1) {
-    try {
-      return await postArchiveOnce(payload, body, options);
-    } catch (error) {
-      if (error && error.fatal) throw error;
-      lastError = error;
-      if (attempt < ARCHIVE_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, 700));
+let windowRequest = 0;
+async function loadWindow() {
+  const generation = ++windowRequest;
+  state.loading = true;
+  state.failedDates = [];
+  renderReading();
+  const dates = (state.manifest.available_dates || []).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= state.manifest.retention.start && d <= state.manifest.retention.end).sort().reverse();
+  let cursor = 0,
+    done = 0;
+  const articles = new Map();
+  await Promise.all(Array.from({
+    length: Math.min(6, dates.length)
+  }, async () => {
+    while (cursor < dates.length) {
+      const date = dates[cursor++];
+      try {
+        const day = state.dayCache.get(date) || await request(`data/days/${date}.json`);
+        if (generation !== windowRequest) return;
+        state.dayCache.set(date, day);
+        for (const a of day.articles || []) {
+          articles.set(a.id, a);
+        }
+      } catch {
+        if (generation === windowRequest) state.failedDates.push(date);
+      }
+      done++;
+      if (generation === windowRequest && state.view === 'papers') $('load-status').textContent = `Loaded ${done}/${dates.length} days…`;
     }
-  }
-  const reason = lastError && lastError.name === "AbortError"
-    ? `请求超时（${ARCHIVE_TIMEOUT_MS / 1000} 秒）`
-    : "网络连接失败";
-  throw new Error(`${reason}，已自动重试仍失败`);
-}
-
-let pendingRetry = null;
-
-function showError(message, retry) {
-  pendingRetry = typeof retry === "function" ? retry : null;
-  elements.status.hidden = false;
-  elements.status.innerHTML = `<i data-lucide="triangle-alert"></i><span>${escapeHTML(message)}</span>${pendingRetry ? '<button class="text-button compact-button" type="button" id="status-retry">重试</button>' : ""}`;
-  const button = elements.status.querySelector("#status-retry");
-  if (button && pendingRetry) {
-    button.addEventListener("click", () => {
-      const retry = pendingRetry;
-      elements.status.hidden = true;
-      elements.status.replaceChildren();
-      pendingRetry = null;
-      retry();
-    });
-  }
-  renderIcons();
-}
-
-function updateArchiveCount() {
-  const count = Object.keys(state.archive.items).length;
-  elements.archiveCount.hidden = count === 0;
-  elements.archiveCount.textContent = count;
-  elements.archiveClear.disabled = count === 0;
-}
-
-function updateFavoriteCount() {
-  const count = Object.keys(state.archive.favorites).length;
-  elements.favoriteCount.hidden = count === 0;
-  elements.favoriteCount.textContent = count;
-}
-
-function refreshFavoriteControls(articleId) {
-  const active = isFavorite(articleId);
-  const label = active ? "取消收藏" : "收藏这篇论文";
-  elements.list.querySelectorAll("[data-favorite-article]").forEach((button) => {
-    if (button.dataset.favoriteArticle !== articleId) return;
-    button.classList.toggle("is-active", active);
-    button.disabled = state.pendingFavorites.has(articleId);
-    button.setAttribute("aria-pressed", String(active));
-    button.setAttribute("aria-label", label);
-    button.title = label;
-  });
-}
-
-function updateSupplementCount() {
-  const articles = [
-    ...(state.supplements?.late_additions || []),
-    ...(state.supplements?.date_pending || []),
-  ];
-  const count = articles.filter((article) => (
-    article.content_type === "article" && !isArchived(article.id)
-  )).length;
-  elements.supplementCount.hidden = count === 0;
-  elements.supplementCount.textContent = count;
-}
-
-async function loadArchive() {
-  try {
-    const data = await fetchJSON(ARCHIVE_API);
-    state.archive = normalizeArchive(data);
-  } catch (error) {
-    state.archive = normalizeArchive(null);
-  }
-  updateArchiveCount();
-  updateFavoriteCount();
-  updateSupplementCount();
-  updateSettingsArchiveUI();
-}
-
-function archiveStateSnapshot(ids) {
-  return ids.map((id) => ({
-    id,
-    item: state.archive.items[id] ? { ...state.archive.items[id] } : null,
-    cleared: state.archive.cleared_items[id] ? { ...state.archive.cleared_items[id] } : null,
-    favorite: state.archive.favorites[id] ? { ...state.archive.favorites[id] } : null,
   }));
+  if (generation !== windowRequest) return;
+  state.articles = [...articles.values()].sort(articleOrder);
+  state.loading = false;
+  renderReading();
 }
 
-function restoreArchiveState(snapshot) {
-  snapshot.forEach(({ id, item, cleared }) => {
-    delete state.archive.items[id];
-    delete state.archive.cleared_items[id];
-    if (item) state.archive.items[id] = item;
-    if (cleared) state.archive.cleared_items[id] = cleared;
-  });
-}
-
-function optimisticallyClearArchive(ids) {
-  const snapshot = archiveStateSnapshot(ids);
-  const clearedAt = new Date().toISOString();
-  ids.forEach((id) => {
-    const item = state.archive.items[id];
-    if (!item) return;
-    delete state.archive.items[id];
-    state.archive.cleared_items[id] = { ...item, cleared_at: item.cleared_at || clearedAt };
-  });
-  return snapshot;
-}
-
-function optimisticallyArchive(articles) {
-  const ids = articles.map((article) => article.id);
-  const snapshot = archiveStateSnapshot(ids);
-  const archivedAt = new Date().toISOString();
-  articles.forEach((article) => {
-    const id = article.id;
-    const existing = state.archive.items[id] || state.archive.cleared_items[id] || {};
-    state.archive.items[id] = {
-      ...existing,
-      ...articlePayload(article),
-      archived_at: existing.archived_at || archivedAt,
-    };
-    delete state.archive.cleared_items[id];
-    state.pendingArchives.add(id);
-  });
-  return snapshot;
-}
-
-async function archiveArticles(articles) {
-  const candidates = [...new Map(articles
-    .filter((article) => article && article.id && !isArchived(article.id))
-    .map((article) => [article.id, article])).values()];
-  if (!candidates.length) return true;
-  const snapshot = optimisticallyArchive(candidates);
-  updateArchiveCount();
-  updateSupplementCount();
-  updateSettingsArchiveUI();
-  renderCurrent();
-  try {
-    await postArchive({
-      action: "add",
-      items: candidates.map(articlePayload),
-    }, { minimal: true });
-  } catch (error) {
-    restoreArchiveState(snapshot);
-    if (window.console && console.error) console.error("[paper-tracker] archive failed", error);
-    candidates.forEach((article) => state.pendingArchives.delete(article.id));
-    updateArchiveCount();
-    updateSupplementCount();
-    updateSettingsArchiveUI();
-    renderCurrent();
-    showError(`归档失败：${error.message}`, () => archiveArticles(articles));
-    return false;
-  }
-  candidates.forEach((article) => state.pendingArchives.delete(article.id));
-  updateArchiveCount();
-  updateSupplementCount();
-  updateSettingsArchiveUI();
-  renderCurrent();
-  return true;
-}
-
-function articlePayload(article) {
+function articlePayload(a) {
   return {
-    id: article.id,
-    journal_id: article.journal_id,
-    date: article.archived_date || article.published_date || article.date || state.date || state.dailyDay?.date || state.manifest?.default_date || null,
-    title_en: article.title_en || "",
-    title_zh: article.title_zh || "",
-    url: article.url || "",
-    doi: article.doi || "",
-    translation_status: article.translation_status || (article.title_zh ? "translated" : "pending"),
+    id: a.id,
+    journal_id: a.journal_id,
+    date: a.published_date || a.archived_date || a.date || null,
+    title_en: a.title_en || '',
+    title_zh: a.title_zh || '',
+    url: a.url || '',
+    doi: a.doi || '',
+    translation_status: a.translation_status || (a.title_zh ? 'translated' : 'pending'),
+    date_inferred: Boolean(a.date_inferred),
+    date_inference: a.date_inference || null,
+    first_seen_at: a.first_discovered_at || a.first_seen_at || null
   };
 }
 
-async function toggleFavorite(article) {
-  if (!article?.id) return false;
-  const active = isFavorite(article.id);
-  const snapshot = archiveStateSnapshot([article.id]);
-  state.pendingFavorites.add(article.id);
-  if (active) {
-    delete state.archive.favorites[article.id];
-  } else {
-    const existing = state.archive.favorites[article.id] || {};
-    state.archive.favorites[article.id] = {
-      ...existing,
-      ...articlePayload(article),
-      favorited_at: existing.favorited_at || new Date().toISOString(),
+function applyArchiveLocally(action, records) {
+  const timestamp = new Date().toISOString();
+  state.archive = {
+    ...state.archive,
+    items: {
+      ...state.archive.items
+    },
+    cleared_items: {
+      ...state.archive.cleared_items
+    },
+    favorites: {
+      ...state.archive.favorites
+    },
+  };
+  for (const record of records) {
+    const id = typeof record === 'string' ? record : record.id;
+    if (action === 'add' || action === 'favorite') {
+      const bucket = action === 'add' ? state.archive.items : state.archive.favorites;
+      const existing = bucket[id] || (action === 'add' && state.archive.cleared_items[id]) || {};
+      const dateKey = action === 'add' ? 'archived_at' : 'favorited_at';
+      bucket[id] = {
+        ...existing,
+        ...articlePayload(record),
+        [dateKey]: existing[dateKey] || timestamp
+      };
+      if (action === 'add') {
+        delete state.archive.cleared_items[id];
+        delete bucket[id].cleared_at;
+      }
+    } else if (action === 'remove') {
+      delete state.archive.items[id];
+      delete state.archive.cleared_items[id];
+    } else if (action === 'unfavorite') {
+      delete state.archive.favorites[id];
+    } else if (action === 'clear' && state.archive.items[id]) {
+      state.archive.cleared_items[id] = {
+        ...state.archive.items[id],
+        cleared_at: timestamp
+      };
+      delete state.archive.items[id];
+    } else if (action === 'restore_cleared' && state.archive.cleared_items[id]) {
+      state.archive.items[id] = {
+        ...state.archive.cleared_items[id]
+      };
+      delete state.archive.items[id].cleared_at;
+      delete state.archive.cleared_items[id];
+    }
+  }
+}
+async function mutateArchive(action, records) {
+  if (state.busy || !records.length) return;
+  if (state.admin?.job?.status === 'running' && state.admin.job.kind === 'gist-import') return notify('Import in progress. Please wait.', true);
+  const snapshot = state.archive;
+  state.archiveRevision++;
+  state.busy = true;
+  state.saveProgress = action === 'add' || records.length > 1 ? {
+    action, total: records.length, confirmed: 0, batch: 1,
+    batches: Math.ceil(records.length / 128), phase: 'saving', slow: false
+  } : null;
+  let waitTimer;
+  applyArchiveLocally(action, records);
+  state.selection.clear();
+  renderReading();
+  try {
+    const items = ['add', 'favorite'].includes(action);
+    const payload = {
+      action,
+      ...(items ? {
+        items: records.map(articlePayload)
+      } : {
+        ids: records.map(a => typeof a === 'string' ? a : a.id)
+      })
     };
-  }
-  updateFavoriteCount();
-  if (state.view === "favorites") renderCurrent();
-  else refreshFavoriteControls(article.id);
-  try {
-    const payload = active
-      ? { action: "unfavorite", ids: [article.id] }
-      : { action: "favorite", items: [articlePayload(article)] };
-    await postArchive(payload, { minimal: true });
+    // One journal may contain thousands of papers. Keep each atomic API write
+    // below the request limit while a single click completes the whole journal.
+    const values = payload.items || payload.ids;
+    for (let offset = 0; offset < values.length; offset += 128) {
+      if (state.saveProgress) {
+        state.saveProgress.batch = Math.floor(offset / 128) + 1;
+        state.saveProgress.slow = false;
+        renderSaveProgress();
+        waitTimer = setTimeout(() => {
+          state.saveProgress.slow = true;
+          renderSaveProgress();
+        }, 8000);
+      }
+      const batch = {
+        action,
+        dataset_id: state.archiveDatasetId,
+        [items ? 'items' : 'ids']: values.slice(offset, offset + 128)
+      };
+      const response = await request('api/archive', {
+        method: 'POST',
+        headers: {
+          Prefer: 'return=minimal'
+        },
+        body: JSON.stringify(batch),
+        timeout: 60000
+      });
+      clearTimeout(waitTimer);
+      state.archive.updated_at = response.updated_at;
+      if (state.saveProgress) {
+        state.saveProgress.confirmed += batch[items ? 'items' : 'ids'].length;
+        renderSaveProgress();
+      }
+    }
+    const message = ({
+      add: 'Archived',
+      remove: 'Marked unread',
+      favorite: 'Saved to favorites',
+      unfavorite: 'Favorite removed',
+      clear: 'Archives hidden',
+      restore_cleared: 'Hidden archives restored'
+    })[action];
+    notify(action === 'add' ? `${message} ${countLabel(records.length, 'paper')}` : message);
   } catch (error) {
-    delete state.archive.favorites[article.id];
-    if (snapshot[0].favorite) state.archive.favorites[article.id] = snapshot[0].favorite;
-    if (window.console && console.error) console.error("[paper-tracker] favorite failed", error);
-    state.pendingFavorites.delete(article.id);
-    updateFavoriteCount();
-    if (state.view === "favorites") renderCurrent();
-    else refreshFavoriteControls(article.id);
-    showError(`${active ? "取消收藏" : "收藏"}失败：${error.message}`, () => toggleFavorite(article));
-    return false;
+    clearTimeout(waitTimer);
+    if (state.saveProgress) {
+      state.saveProgress.phase = 'checking';
+      renderSaveProgress();
+    }
+    state.archive = snapshot;
+    let reconciled = false;
+    try {
+      const saved = await request('api/archive');
+      state.archiveDatasetId = saved.dataset_id || 'initial';
+      state.archive = {
+        items: saved.items || {},
+        cleared_items: saved.cleared_items || {},
+        favorites: saved.favorites || {},
+        updated_at: saved.updated_at
+      };
+      reconciled = true;
+    } catch {
+      /* Keep the snapshot if the saved state cannot be confirmed. */
+    }
+    notify(`Save not confirmed: ${error.message}. ${reconciled ? 'Saved state reloaded. Retry any remaining papers.' : 'Refresh to check saved state before retrying.'}`, true);
+  } finally {
+    clearTimeout(waitTimer);
+    state.busy = false;
+    state.saveProgress = null;
+    renderReading();
+    renderCounts();
+    syncURL();
   }
-  state.pendingFavorites.delete(article.id);
-  updateFavoriteCount();
-  if (state.view === "favorites") renderCurrent();
-  else refreshFavoriteControls(article.id);
-  return true;
 }
 
-async function restoreArticles(ids) {
-  if (!ids.length) return true;
-  const snapshot = [...ids];
+function findArticle(id) {
+  return state.articles.find(a => a.id === id) || state.archive.items[id] || state.archive.favorites[id];
+}
+async function loadArchive() {
+  if (state.busy) return;
+  const revision = state.archiveRevision;
   try {
-    const data = await postArchive({ action: "remove", ids });
-    state.archive = normalizeArchive(data);
-  } catch (error) {
-    if (window.console && console.error) console.error("[paper-tracker] restore failed", error);
-    showError(`恢复失败：${error.message}`, () => restoreArticles(snapshot));
-    return false;
+    const archive = await request('api/archive');
+    if (revision !== state.archiveRevision) return;
+    state.archiveDatasetId = archive.dataset_id || 'initial';
+    state.archive = {
+      items: archive.items || {},
+      cleared_items: archive.cleared_items || {},
+      favorites: archive.favorites || {}
+    };
+    state.archiveAvailable = true;
+  } catch {
+    if (revision !== state.archiveRevision) return;
+    state.archiveAvailable = false;
+    notify('The archive service is unavailable. Favorites and archives are temporarily disabled.', true);
   }
-  ids.forEach((id) => state.archiveSelection.delete(id));
-  updateArchiveCount();
-  updateSupplementCount();
-  updateSettingsArchiveUI();
-  renderCurrent();
-  return true;
+  renderCounts();
 }
 
-async function clearArchive(ids) {
-  if (!ids.length) return true;
-  if (state.archiveOperation) return false;
-  const uniqueIds = [...new Set(ids)];
-  const snapshot = optimisticallyClearArchive(uniqueIds);
-  state.archiveSelection.clear();
-  state.archiveOperation = { type: "clear", count: uniqueIds.length };
-  updateArchiveCount();
-  updateSettingsArchiveUI();
-  renderCurrent();
+function renderAdmin() {
+  const a = state.admin,
+    running = a?.job?.status === 'running';
+  for (const id of ['match-journal', 'run-now', 'update-metrics', 'save-filter', 'llm-save', 'llm-disable', 'llm-verify']) $(id).disabled = !a || running || state.adminBusy;
+  for (const id of ['llm-base-url', 'llm-model', 'llm-api-key', 'edit-rules']) $(id).disabled = !a || running || state.adminBusy;
+  const matchButton = $('confirm-follow');
+  if (matchButton) matchButton.disabled = !a || running || state.adminBusy;
+  renderUpdate();
+  if (!state.llmDirty) {
+    $('llm-base-url').value = a?.llm?.base_url || '';
+    $('llm-model').value = a?.llm?.model || '';
+    $('llm-api-key').value = '';
+  }
+  $('llm-api-key').placeholder = a?.llm?.api_key_set ? 'Saved; leave blank to keep it' : 'Enter API key';
+  $('llm-summary').textContent = a?.llm?.configured ? 'Configured' : 'Not configured';
+  if (!state.filterDirty) {
+    state.filterIds = new Set(a?.filter_journal_ids || []);
+    state.prompt = a?.filter_prompt || '';
+  }
+  $('rules-summary').textContent = state.prompt ? 'Custom rules' : 'Default rules';
+  $('filter-summary').textContent = `Journals · ${state.filterIds.size}/${state.journals.length}`;
+  // Preserve focus and open controls while polling; list changes only when its data changes.
+  const filterSignature = JSON.stringify([state.journals.map(j => j.id), [...state.filterIds], Boolean(a), running, state.adminBusy]);
+  if ($('filter-journal-list').dataset.signature !== filterSignature) {
+    $('filter-journal-list').innerHTML = state.journals.map(j => `<label class="filter-option"><input type="checkbox" data-filter-setting="${escape(j.id)}" ${state.filterIds.has(j.id)?'checked':''} ${!a||running||state.adminBusy?'disabled':''} /><span>${escape(j.name)}</span></label>`).join('');
+    $('filter-journal-list').dataset.signature = filterSignature;
+  }
+  renderJournals();
+  renderGist();
+}
+
+function renderGist() {
+  const gist = state.admin?.gist || {};
+  const running = state.admin?.job?.status === 'running';
+  const disabled = !state.admin || running || state.adminBusy || state.gistBusy;
+  $('github-connect').disabled = disabled || Boolean(state.gistFlow);
+  $('github-disconnect').disabled = disabled;
+  $('github-disconnect').hidden = !gist.connected && !gist.expired;
+  $('gist-export').disabled = disabled || !gist.connected;
+  $('gist-preview').disabled = disabled || !gist.connected;
+  $('gist-import').disabled = disabled || !gist.connected || !state.gistPreview || state.busy;
+  $('github-client-id').disabled = disabled || Boolean(state.gistFlow);
+  if (document.activeElement !== $('github-client-id') && !$('github-client-id').value) $('github-client-id').value = gist.client_id || '';
+  $('gist-summary').textContent = gist.error || (gist.connected ? `Connected as ${gist.login}` : gist.expired ? 'Authorization expired. Connect again.' : 'Not connected');
+  const job = state.admin?.job;
+  if (job?.kind?.startsWith('gist-') && job.finished_at && state.gistResultSeen !== job.finished_at) {
+    state.gistResultSeen = job.finished_at;
+    if (job.status === 'failed') {
+      inline('gist-status', englishMessage(job.message, 'Backup failed. Try again.'), true);
+    } else if (job.status === 'success') {
+      const result = job.result || {};
+      if (job.kind === 'gist-preview') {
+        state.gistPreview = result;
+        $('gist-import-preview').hidden = !result.preview_id;
+        $('gist-preview-counts').textContent = `${countLabel(result.journals || 0, 'journal')} · ${countLabel(result.papers || 0, 'paper')} · ${countLabel(result.favorites || 0, 'favorite')}`;
+        inline('gist-status', 'Ready to import');
+      } else if (job.kind === 'gist-export') {
+        if (/^https:\/\/gist\.github\.com\/[A-Za-z0-9-]+\/[a-f0-9]{20,40}$/.test(result.gist_url || '')) {
+          $('gist-result-link').href = result.gist_url;
+          $('gist-result-link').hidden = false;
+          $('gist-url').value = result.gist_url;
+        }
+        inline('gist-status', 'Backup saved');
+      } else {
+        state.gistPreview = null;
+        $('gist-import-preview').hidden = true;
+        state.llmDirty = false;
+        state.filterDirty = false;
+        inline('gist-status', 'Import complete');
+      }
+    }
+    $('gist-import').disabled = disabled || !gist.connected || !state.gistPreview || state.busy;
+  }
+  if (running && job.kind?.startsWith('gist-')) inline('gist-status', ({'gist-export': 'Uploading backup…', 'gist-preview': 'Checking backup…', 'gist-import': 'Importing data…'})[job.kind]);
+}
+
+async function githubConnect() {
+  state.gistBusy = true;
+  inline('gist-status', 'Connecting to GitHub…');
+  renderGist();
   try {
-    await postArchive({ action: "clear", ids: uniqueIds }, { minimal: true });
-  } catch (error) {
-    restoreArchiveState(snapshot);
-    state.archiveOperation = null;
-    updateArchiveCount();
-    updateSettingsArchiveUI();
-    renderCurrent();
-    showError(`清空归档失败：${error.message}`, () => clearArchive(uniqueIds));
-    return false;
+    const flow = await request('api/admin/gist/auth/start', {method: 'POST', body: JSON.stringify({client_id: $('github-client-id').value.trim()}), timeout: 60000});
+    state.gistFlow = flow;
+    $('github-user-code').textContent = flow.user_code;
+    $('github-authorization').hidden = false;
+    $('github-auth-status').textContent = 'Waiting for GitHub approval…';
+    inline('gist-status', '');
+    state.gistPoll = setTimeout(githubPoll, flow.interval * 1000);
+  } catch (e) {
+    inline('gist-status', e.message, true);
+  } finally {
+    state.gistBusy = false;
+    renderGist();
   }
-  state.archiveOperation = null;
-  updateArchiveCount();
-  updateSettingsArchiveUI();
-  renderCurrent();
-  return true;
 }
 
-async function restoreClearedArchive(ids) {
-  if (!ids.length) return true;
-  const snapshot = [...ids];
+async function githubPoll() {
+  const flow = state.gistFlow;
+  if (!flow) return;
   try {
-    state.archive = normalizeArchive(await postArchive({ action: "restore_cleared", ids }));
-  } catch (error) {
-    showError(`恢复归档失败：${error.message}`, () => restoreClearedArchive(snapshot));
-    return false;
+    const result = await request('api/admin/gist/auth/poll', {method: 'POST', body: JSON.stringify({flow_id: flow.flow_id}), timeout: 60000});
+    if (state.gistFlow !== flow) return;
+    if (result.pending) {
+      state.gistPoll = setTimeout(githubPoll, result.interval * 1000);
+      return;
+    }
+    state.gistFlow = null;
+    $('github-authorization').hidden = true;
+    $('github-user-code').textContent = '';
+    await loadAdmin();
+    inline('gist-status', 'GitHub connected');
+  } catch (e) {
+    state.gistFlow = null;
+    $('github-auth-status').textContent = e.message;
   }
-  updateArchiveCount();
-  renderSettings();
-  renderCurrent();
-  return true;
+  renderGist();
 }
 
-function currentArticles() {
-  if (state.view === "daily") return state.dailyDay?.articles || [];
-  if (state.view === "archive") return Object.values(state.archive.items);
-  if (state.view === "favorites") return Object.values(state.archive.favorites);
-  if (state.view === "history" && state.mode === "supplements") {
-    return [...(state.supplements?.late_additions || []), ...(state.supplements?.date_pending || [])];
+async function gistTask(action, payload = {}) {
+  if (state.busy) return notify('Wait for the current save to finish.', true);
+  if (action !== 'import') {
+    state.gistPreview = null;
+    $('gist-import-preview').hidden = true;
   }
-  return state.day?.articles || [];
+  await startJob(`/gist/${action}`, payload);
+}
+async function loadAdmin() {
+  clearTimeout(state.poll);
+  const wasRunning = state.admin?.job?.status === 'running';
+  const previousJob = state.admin?.job;
+  try {
+    state.admin = await adminRequest('/journals');
+    state.adminLoaded = true;
+    if (state.admin.job?.kind === 'gist-import' && state.admin.job.status === 'success' && previousJob?.finished_at !== state.admin.job.finished_at) {
+      state.filterDirty = false;
+      state.llmDirty = false;
+    }
+    renderAdmin();
+    const newlyCompleted = previousJob && state.admin.job?.finished_at && previousJob.finished_at !== state.admin.job.finished_at;
+    if ((wasRunning || state.refreshAfterJob || newlyCompleted) && state.admin.job?.status !== 'running') {
+      state.refreshAfterJob = false;
+      await loadMetadata();
+      state.dayCache.clear();
+      await Promise.all([loadWindow(), loadArchive()]);
+      renderReading();
+    }
+  } catch {
+    state.admin = null;
+    state.adminLoaded = true;
+    renderAdmin();
+    if (wasRunning || state.refreshAfterJob) state.poll = setTimeout(loadAdmin, 7000);
+  }
+  if (state.admin?.job?.status === 'running') state.poll = setTimeout(loadAdmin, 3000);
+}
+async function startJob(path, payload = {}) {
+  if (state.adminBusy) return;
+  state.adminBusy = true;
+  renderAdmin();
+  try {
+    state.admin = await adminRequest(path, payload);
+    state.refreshAfterJob = true;
+    renderAdmin();
+    notify(path.startsWith('/gist/') ? 'Backup task started' : 'Update started');
+    state.poll = setTimeout(loadAdmin, 1500);
+    return true;
+  } catch (e) {
+    notify(e.message, true);
+  } finally {
+    state.adminBusy = false;
+    renderAdmin();
+  }
+}
+async function matchJournal(event) {
+  event.preventDefault();
+  state.match = null;
+  state.adminBusy = true;
+  renderAdmin();
+  inline('journal-match', 'Matching…');
+  try {
+    const result = await adminRequest('/journals/resolve', {
+      name: $('journal-name').value.trim()
+    });
+    state.match = result;
+    const existing = state.journals.some(j => (j.issns || []).some(issn => result.issns.includes(issn)));
+    $('journal-match').innerHTML = `<div class="match-result"><strong>${escape(result.name)}</strong>${badges(result)}${existing?'<p class="muted">Already following</p>':''}${!existing?'<label class="check-label"><input id="follow-filter" type="checkbox" />Apply title filter</label><div class="form-actions"><button class="button primary" id="confirm-follow">Follow</button></div>':''}</div>`;
+  } catch (e) {
+    inline('journal-match', e.message, true);
+  } finally {
+    state.adminBusy = false;
+    renderAdmin();
+  }
+}
+async function followJournal() {
+  if (!state.match) return;
+  const started = await startJob('/journals', {
+    name: state.match.name,
+    filter_enabled: $('follow-filter')?.checked || false
+  });
+  if (started) {
+    state.match = null;
+    $('journal-match').replaceChildren();
+    $('journal-name').value = '';
+  }
 }
 
-function findArticle(articleId) {
-  return currentArticles().find((item) => item.id === articleId)
-    || state.archive.items[articleId]
-    || state.archive.cleared_items[articleId]
-    || state.archive.favorites[articleId]
-    || null;
+function llmPayload() {
+  return {
+    base_url: $('llm-base-url').value.trim(),
+    model: $('llm-model').value.trim(),
+    api_key: $('llm-api-key').value
+  };
+}
+async function modelAction(verify = false) {
+  if (!$('llm-form').reportValidity()) return;
+  state.adminBusy = true;
+  renderAdmin();
+  inline('llm-status', verify ? 'Testing the model and structured responses…' : 'Saving…');
+  try {
+    const payload = llmPayload();
+    const result = await adminRequest(verify ? '/llm/verify' : '/llm', payload);
+    if (verify) inline('llm-status', 'Connection verified');
+    else {
+      state.llmDirty = false;
+      $('llm-api-key').value = '';
+      state.admin = result;
+      inline('llm-status', 'Saved');
+    }
+  } catch (e) {
+    inline('llm-status', e.message, true);
+  } finally {
+    state.adminBusy = false;
+    renderAdmin();
+  }
+}
+async function saveFilter() {
+  state.adminBusy = true;
+  renderAdmin();
+  try {
+    state.admin = await adminRequest('/filter', {
+      journal_ids: [...state.filterIds],
+      prompt: state.prompt
+    });
+    state.filterDirty = false;
+    inline('filter-status', 'Saved');
+  } catch (e) {
+    inline('filter-status', e.message, true);
+  } finally {
+    state.adminBusy = false;
+    renderAdmin();
+  }
+}
+
+function closeDialog(dialog, event) {
+  if (event.target !== dialog) return;
+  const r = dialog.getBoundingClientRect();
+  if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) dialog.close();
 }
 
 function bindEvents() {
-  document.querySelectorAll(".view-tab").forEach((tab) => tab.addEventListener("click", () => switchView(tab.dataset.view)));
-  // 历史及补录：日期控件
-  elements.previous.addEventListener("click", () => loadHistoryDay(addDays(state.date, -1)));
-  elements.next.addEventListener("click", () => loadHistoryDay(addDays(state.date, 1)));
-  elements.yesterday.addEventListener("click", () => loadHistoryDay(state.manifest.default_date));
-  elements.datePicker.addEventListener("change", () => loadHistoryDay(elements.datePicker.value));
-  // 历史及补录：历史 / 补录 子标签
-  document.querySelectorAll("[data-mode]").forEach((button) => button.addEventListener("click", () => {
-    state.mode = button.dataset.mode;
-    document.querySelectorAll("[data-mode]").forEach((item) => item.classList.toggle("is-active", item === button));
-    renderHistory(); syncURL();
-  }));
-  // 已归档：日期控件
-  elements.archivePrevious.addEventListener("click", () => setArchiveDate(addDays(state.archiveDate, -1)));
-  elements.archiveNext.addEventListener("click", () => setArchiveDate(addDays(state.archiveDate, 1)));
-  elements.archiveYesterday.addEventListener("click", () => setArchiveDate(state.manifest.default_date));
-  elements.archiveDatePicker.addEventListener("change", () => setArchiveDate(elements.archiveDatePicker.value));
-  document.querySelector("#settings-button").addEventListener("click", () => {
-    renderSettings();
-    elements.settingsDialog.showModal();
-    loadJournalAdmin();
-    loadExcludedPapers();
+  window.addEventListener('resize', updateStickyOffsets);
+  if (typeof ResizeObserver === 'function') {
+    const observer = new ResizeObserver(updateStickyOffsets);
+    observer.observe(document.querySelector('.site-header'));
+    observer.observe($('selection-bar'));
+    observer.observe($('save-status'));
+  }
+  document.addEventListener('keydown', e => {
+    document.documentElement.classList.add('keyboard');
+    if (e.key === 'Tab') document.documentElement.classList.add('keyboard-navigation');
   });
-  document.querySelector("#close-settings").addEventListener("click", () => elements.settingsDialog.close());
-  elements.settingsDialog.addEventListener("click", (event) => {
-    if (event.target === elements.settingsDialog) elements.settingsDialog.close();
+  document.addEventListener('pointerdown', () => document.documentElement.classList.remove('keyboard', 'keyboard-navigation'), {capture: true});
+  document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => switchView(b.dataset.view)));
+  document.querySelectorAll('button[data-theme]').forEach(b => b.addEventListener('click', () => setTheme(b.dataset.theme)));
+  $('paper-search-form').addEventListener('submit', event => {
+    event.preventDefault();
+    state.search = $('paper-search').value.trim();
+    resetReading();
   });
-  elements.list.addEventListener("change", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLInputElement)) return;
-    if (target.dataset.archiveArticle) {
-      const article = currentArticles().find((item) => item.id === target.dataset.archiveArticle);
-      if (target.checked && article) {
-        target.disabled = true;
-        archiveArticles([article]).then((ok) => {
-          if (!ok) target.checked = false;
-          target.disabled = false;
-        });
-      } else if (!target.checked) {
-        target.checked = false;
-      }
-      return;
-    }
-    if (target.dataset.archiveJournal) {
-      const journalId = target.dataset.archiveJournal;
-      const articles = currentArticles().filter((item) => item.journal_id === journalId && item.content_type === "article");
-      if (target.checked) {
-        target.disabled = true;
-        archiveArticles(articles).then((ok) => {
-          if (!ok) target.checked = false;
-          target.disabled = false;
-        });
-      }
-      return;
-    }
-    if (target.dataset.archiveItem) {
-      const id = target.dataset.archiveItem;
-      if (target.checked) state.archiveSelection.add(id);
-      else state.archiveSelection.delete(id);
-      const section = target.closest(".journal-section");
-      if (section) {
-        const boxes = [...section.querySelectorAll("[data-archive-item]")];
-        const group = section.querySelector("[data-archive-group]");
-        if (group) group.checked = boxes.length > 0 && boxes.every((box) => box.checked);
-      }
-      updateArchiveSelectionUI();
-      return;
-    }
-    if (target.dataset.archiveGroup) {
-      const journalId = target.dataset.archiveGroup;
-      archiveItemsVisible()
-        .filter((item) => item.journal_id === journalId)
-        .forEach((item) => {
-          if (target.checked) state.archiveSelection.add(item.id);
-          else state.archiveSelection.delete(item.id);
-        });
-      renderArchive();
+  $('paper-search').addEventListener('input', () => {
+    if (!$('paper-search').value && state.search) {
+      state.search = '';
+      resetReading();
     }
   });
-  elements.list.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-favorite-article]");
-    if (!button) return;
-    const article = findArticle(button.dataset.favoriteArticle);
-    if (!article) return;
-    button.disabled = true;
-    toggleFavorite(article).then((ok) => {
-      if (!ok && button.isConnected) button.disabled = false;
-    });
-  });
-
-  elements.archiveSelectAll.addEventListener("click", () => {
-    archiveItemsVisible().forEach((item) => state.archiveSelection.add(item.id));
-    renderArchive();
-  });
-  elements.archiveNone.addEventListener("click", () => {
-    state.archiveSelection.clear();
-    renderArchive();
-  });
-  elements.archiveClear.addEventListener("click", () => {
-    const ids = archiveItemsVisible().map((item) => item.id);
-    if (!ids.length) return;
-    if (!window.confirm(`确定清空当前可见的 ${ids.length} 篇归档记录？这些论文将从归档页隐藏，但仍保持已读，可在设置中恢复归档。`)) return;
-    clearArchive(ids);
-  });
-  elements.archiveRestore.addEventListener("click", () => {
-    restoreArticles([...state.archiveSelection]);
-  });
-
-  document.querySelector("#restore-journals").addEventListener("click", () => {
-    state.hidden.clear();
-    state.selected = new Set(state.journals.map((journal) => journal.id));
-    persistHiddenJournals();
-    renderSettings();
-    renderCurrent();
+  for (const [id, delta] of [
+      ['previous-page', -1],
+      ['next-page', 1]
+    ]) $(id).addEventListener('click', () => {
+    state.page += delta;
+    renderReading();
     syncURL();
-  });
-  elements.settingsRestoreArchive.addEventListener("click", () => {
-    restoreClearedArchive(Object.keys(state.archive.cleared_items));
-  });
-  elements.journalAddRun.addEventListener("click", addJournalAndRun);
-  elements.journalNameInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") addJournalAndRun();
-  });
-  elements.journalRunNow.addEventListener("click", runDailyNow);
-  elements.titleFilterSave.addEventListener("click", saveTitleFilter);
-  elements.llmSave.addEventListener("click", saveLlmSettings);
-  elements.llmDisable.addEventListener("click", disableLlmSettings);
-  for (const input of [elements.llmBaseUrl, elements.llmModel, elements.llmApiKey]) {
-    input.addEventListener("input", () => {
-      state.llmDirty = true;
-      elements.llmSave.disabled = false;
-      elements.llmSettingsStatus.textContent = "设置尚未保存";
+    $('reading-view').scrollIntoView({
+      block: 'start'
     });
-  }
-  elements.excludedPaperRestore.addEventListener("click", restoreExcludedPapers);
-  elements.journalAdminList.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-delete-journal]");
-    if (button) deleteJournal(button.dataset.deleteJournal, button.dataset.journalName);
   });
-  document.querySelectorAll("[data-theme-option]").forEach((button) => button.addEventListener("click", () => {
-    setTheme(button.dataset.themeOption);
-  }));
-}
-
-async function start() {
-  setLoading();
-  state.theme = readThemePreference();
-  applyTheme(state.theme);
-  const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
-  const onSystemThemeChange = () => { if (state.theme === "system") applyTheme("system"); };
-  if (systemTheme.addEventListener) systemTheme.addEventListener("change", onSystemThemeChange);
-  else systemTheme.addListener(onSystemThemeChange);
-  try {
-    const [manifest, journalData, supplements] = await Promise.all([
-      fetchJSON("data/manifest.json"), fetchJSON("data/journals.json"), fetchJSON("data/supplements.json", true),
-    ]);
-    state.manifest = manifest;
-    state.journals = journalData.journals || [];
-    state.journalMap = new Map(state.journals.map((journal) => [journal.id, journal]));
-    state.hidden = new Set(parseStorageJSON(STORAGE_KEYS.hiddenJournals, []));
-    state.settingsGroups = parseStorageJSON(STORAGE_KEYS.settingsGroups, {});
-    normalizeJournalPreferences();
-    state.supplements = supplements || { late_additions: [], date_pending: [] };
-    await Promise.all([loadArchive(), loadDailyDay()]);
-    const params = new URLSearchParams(location.search);
-    const requestedView = params.get("view");
-    state.view = ["history", "archive", "favorites"].includes(requestedView) ? requestedView : "daily";
-    state.mode = params.get("mode") === "supplements" ? "supplements" : "history";
-    state.date = clampToRetention(params.get("date") || manifest.default_date);
-    state.archiveDate = clampToRetention(params.get("adate") || manifest.default_date);
-    for (const picker of [elements.datePicker, elements.archiveDatePicker]) {
-      picker.min = manifest.retention.start;
-      picker.max = manifest.retention.end;
+  $('paper-list').addEventListener('change', e => {
+    const input = e.target;
+    if (input.dataset.select) {
+      input.checked ? state.selection.add(input.dataset.select) : state.selection.delete(input.dataset.select);
     }
-    elements.datePicker.value = state.date;
-    elements.archiveDatePicker.value = state.archiveDate;
-    elements.previous.disabled = state.date <= manifest.retention.start;
-    elements.next.disabled = state.date >= manifest.retention.end;
-    elements.archivePrevious.disabled = state.archiveDate <= manifest.retention.start;
-    elements.archiveNext.disabled = state.archiveDate >= manifest.retention.end;
-    elements.sourceNote.textContent = journalData.source.label;
-    updateSupplementCount();
-    renderSettings();
-    bindEvents();
-    document.querySelectorAll("[data-mode]").forEach((item) => item.classList.toggle("is-active", item.dataset.mode === state.mode));
-    // 历史视图需要该日数据
-    if (state.view === "history") await loadHistoryDay(state.date);
-    switchView(state.view);
-    renderUpdateStatus(state.manifest);
-  } catch (error) {
-    elements.heading.innerHTML = "";
-    elements.list.innerHTML = `<div class="error-state"><div><i data-lucide="circle-alert"></i><strong>网站数据尚未生成</strong><span>${escapeHTML(error.message)}</span></div></div>`;
-  }
-  renderIcons();
+    if (input.dataset.selectGroup) {
+      input.closest('.journal-section').querySelectorAll('[data-select]').forEach(x => input.checked ? state.selection.add(x.dataset.select) : state.selection.delete(x.dataset.select));
+    }
+    renderSelection();
+  });
+  $('paper-list').addEventListener('click', e => {
+    const journalButton = e.target.closest('[data-archive-journal]');
+    if (journalButton) {
+      if (!journalButton.disabled) mutateArchive('add', unreadArticles().filter(article => article.journal_id === journalButton.dataset.archiveJournal));
+      return;
+    }
+    const b = e.target.closest('[data-favorite]');
+    if (!b || b.disabled) return;
+    const id = b.dataset.favorite;
+    const article = findArticle(id);
+    if (!article) return;
+    mutateArchive(state.archive.favorites[id] ? 'unfavorite' : 'favorite', [article]);
+  });
+  $('select-visible').addEventListener('click', () => {
+    document.querySelectorAll('[data-select]').forEach(x => state.selection.add(x.dataset.select));
+    renderSelection();
+  });
+  $('clear-selection').addEventListener('click', () => {
+    state.selection.clear();
+    renderSelection();
+  });
+  $('bulk-favorite').addEventListener('click', () => mutateArchive('favorite', selectedRecords()));
+  $('settings-button').addEventListener('click', () => {
+    $('settings-dialog').showModal();
+    loadAdmin();
+  });
+  $('close-settings').addEventListener('click', () => $('settings-dialog').close());
+  for (const id of ['settings-dialog', 'rules-dialog']) $(id).addEventListener('click', e => closeDialog($(id), e));
+  $('settings-dialog').addEventListener('close', () => {
+    $('llm-api-key').value = '';
+    clearTimeout(state.gistPoll);
+    state.gistFlow = null;
+    $('github-user-code').textContent = '';
+    $('github-authorization').hidden = true;
+  });
+  $('github-connect').addEventListener('click', githubConnect);
+  $('github-disconnect').addEventListener('click', async () => {
+    state.gistBusy = true;
+    renderGist();
+    try {
+      await adminRequest('/gist/disconnect', {});
+      state.gistPreview = null;
+      $('gist-import-preview').hidden = true;
+      await loadAdmin();
+      inline('gist-status', 'Disconnected');
+    } catch (e) { inline('gist-status', e.message, true); }
+    finally { state.gistBusy = false; renderGist(); }
+  });
+  $('gist-export').addEventListener('click', () => gistTask('export'));
+  $('gist-import-form').addEventListener('submit', e => {
+    e.preventDefault();
+    gistTask('preview', {gist_url: $('gist-url').value.trim()});
+  });
+  $('gist-url').addEventListener('input', () => {
+    state.gistPreview = null;
+    $('gist-import-preview').hidden = true;
+    renderGist();
+  });
+  $('gist-import').addEventListener('click', () => {
+    if (state.gistPreview) gistTask('import', {preview_id: state.gistPreview.preview_id, confirmed: true});
+  });
+  $('journal-search-form').addEventListener('submit', matchJournal);
+  $('journal-match').addEventListener('click', e => {
+    if (e.target.closest('#confirm-follow')) followJournal();
+  });
+  $('journal-name').addEventListener('input', () => {
+    state.match = null;
+    $('journal-match').replaceChildren();
+  });
+  $('following-list').addEventListener('click', async e => {
+    const b = e.target.closest('[data-unfollow]');
+    if (!b) return;
+    const j = state.journals.find(j => j.id === b.dataset.unfollow);
+    if (!confirm(`Unfollow ${j.name}? Favorites will be kept.`)) return;
+    try {
+      state.admin = await request(`api/admin/journals/${encodeURIComponent(j.id)}`, {
+        method: 'DELETE'
+      });
+      state.refreshAfterJob = true;
+      renderAdmin();
+      state.poll = setTimeout(loadAdmin, 1500);
+    } catch (e) {
+      notify(e.message, true);
+    }
+  });
+  $('run-now').addEventListener('click', () => startJob('/run'));
+  $('update-metrics').addEventListener('click', () => startJob('/metrics/update'));
+  $('llm-form').addEventListener('submit', e => {
+    e.preventDefault();
+    modelAction();
+  });
+  $('llm-verify').addEventListener('click', () => modelAction(true));
+  for (const id of ['llm-base-url', 'llm-model', 'llm-api-key']) $(id).addEventListener('input', () => {
+    state.llmDirty = true;
+    inline('llm-status', 'Unsaved changes');
+  });
+  $('llm-disable').addEventListener('click', async () => {
+    try {
+      state.admin = await adminRequest('/llm/disable', {});
+      state.llmDirty = false;
+      renderAdmin();
+      inline('llm-status', 'Disabled');
+    } catch (e) {
+      inline('llm-status', e.message, true);
+    }
+  });
+  $('edit-rules').addEventListener('click', () => {
+    $('filter-prompt').value = state.prompt;
+    $('rules-dialog').returnValue = 'cancel';
+    $('rules-dialog').showModal();
+  });
+  $('rules-dialog').addEventListener('close', () => {
+    if ($('rules-dialog').returnValue === 'apply') {
+      state.prompt = $('filter-prompt').value.trim();
+      state.filterDirty = true;
+      renderAdmin();
+      inline('filter-status', 'Unsaved changes');
+    }
+  });
+  $('filter-journal-list').addEventListener('change', e => {
+    const id = e.target.dataset.filterSetting;
+    if (!id) return;
+    e.target.checked ? state.filterIds.add(id) : state.filterIds.delete(id);
+    state.filterDirty = true;
+    $('filter-summary').textContent = `Journals · ${state.filterIds.size}/${state.journals.length}`;
+    inline('filter-status', 'Unsaved changes');
+  });
+  $('save-filter').addEventListener('click', saveFilter);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      loadAdmin();
+      loadArchive().then(renderReading);
+    }
+  });
 }
-
-window.addEventListener("beforeunload", (event) => {
-  if (!state.archiveOperation) return;
-  event.preventDefault();
-  event.returnValue = "归档仍在处理中，请勿关闭或刷新页面。";
+async function start() {
+  $('settings-button').innerHTML = icon('settings');
+  $('close-settings').innerHTML = icon('close');
+  $('search-icon').innerHTML = icon('search');
+  setTheme(storage('paper-tracker-theme') || 'system');
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (state.theme === 'system') setTheme('system');
+  });
+  bindEvents();
+  const params = new URLSearchParams(location.search);
+  const legacy = params.get('view');
+  state.view = ['library', 'archive', 'favorites'].includes(legacy) ? 'favorites' : legacy === 'history' ? 'papers' : ['papers', 'journals'].includes(legacy) ? legacy : 'papers';
+  state.search = params.get('q') || '';
+  $('paper-search').value = state.search;
+  try {
+    await loadMetadata();
+    await loadArchive();
+    switchView(state.view);
+    await Promise.all([loadWindow(), loadAdmin()]);
+    const requestedPage = Number(params.get('page'));
+    state.page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+    renderReading();
+    syncURL();
+  } catch (e) {
+    $('paper-list').innerHTML = `<div class="empty-state"><strong>Paper data is unavailable</strong><span>${escape(e.message)}. Check the data directory and service status.</span></div>`;
+    $('update-status').textContent = 'Data is not ready';
+    $('paper-list').setAttribute('aria-busy', 'false');
+    await loadAdmin();
+  }
+}
+window.addEventListener('beforeunload', e => {
+  if (state.busy) {
+    e.preventDefault();
+    e.returnValue = 'Saving';
+  }
 });
-
-window.addEventListener("DOMContentLoaded", start);
+start();
