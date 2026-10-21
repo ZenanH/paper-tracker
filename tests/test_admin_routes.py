@@ -30,6 +30,13 @@ class AdminRoutesTests(unittest.TestCase):
             self.assertEqual(payload["cas"]["zone"], 1)
             self.assertFalse(journal_config.CONFIG_PATH.exists())
 
+    def test_removed_backup_and_authorization_routes_return_not_found(self):
+        with patch.object(journal_manager, "start_job") as start:
+            for route in ("auth/start", "auth/poll", "disconnect", "export", "preview", "import"):
+                with self.subTest(route=route):
+                    self.assertEqual(self.post("/api/admin/gist/" + route, {})[0], 404)
+            start.assert_not_called()
+
     def test_ambiguous_and_missing_names_do_not_follow(self):
         for name in ["Journal", "Definitely not a scientific journal 12345", 123]:
             with self.subTest(name=name):

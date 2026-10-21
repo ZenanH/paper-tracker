@@ -62,6 +62,18 @@ def main() -> None:
                 base = "http://" + docker("port", name, "8080/tcp").splitlines()[0]
                 wait_ready(base)
                 assert b"Paper Tracker" in request(base, "/")
+                assert "gist" not in request(base, "/api/admin/journals")
+                for route in ("auth/start", "auth/poll", "disconnect", "export", "preview", "import"):
+                    try:
+                        request(base, "/api/admin/gist/" + route, {})
+                    except HTTPError as exc:
+                        assert exc.code == 404, exc.code
+                        exc.close()
+                    else:
+                        raise AssertionError("Removed backup API is still accessible")
+                if attempt == 0 and os.environ.get("PAPER_TRACKER_BROWSER_CHECK") == "1":
+                    environment = {**os.environ, "PAPER_TRACKER_TEST_URL": base + "/"}
+                    subprocess.run([os.environ.get("PAPER_TRACKER_NODE", "node"), str(Path(__file__).with_name("browser-journal-actions.cjs"))], env=environment, check=True)
                 manifest = request(base, "/data/manifest.json")
                 for day in manifest["available_dates"]:
                     assert request(base, f"/data/days/{day}.json")["articles"] == []

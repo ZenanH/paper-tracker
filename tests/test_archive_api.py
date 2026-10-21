@@ -58,6 +58,21 @@ class ArchiveApiTests(unittest.TestCase):
             active_patch.stop()
         self.temporary_directory.cleanup()
 
+    def test_existing_dataset_id_still_rejects_stale_browser_writes(self):
+        self.archive_file.write_text(json.dumps({"items": {}, "cleared_items": {},
+            "favorites": {"saved": {"id": "saved", "journal_id": "example", "title_en": "Keep favorite"}},
+            "dataset_id": "existing-dataset"}))
+        before = self.archive_file.read_bytes()
+        for dataset_id in (None, "initial"):
+            payload = {"action": "unfavorite", "ids": ["saved"]}
+            if dataset_id is not None:
+                payload["dataset_id"] = dataset_id
+            with self.assertRaisesRegex(ValueError, "dataset changed"):
+                archive_api.apply_archive(payload)
+            self.assertEqual(self.archive_file.read_bytes(), before)
+        state = archive_api.apply_archive({"action": "unfavorite", "ids": ["saved"], "dataset_id": "existing-dataset"})
+        self.assertNotIn("saved", state["favorites"])
+
     def test_clear_keeps_read_state_and_restore_cleared_makes_it_visible(self):
         article = {
             "id": "doi:10.1000/example",

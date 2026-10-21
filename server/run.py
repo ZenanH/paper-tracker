@@ -231,7 +231,6 @@ def main() -> int:
         "PAPER_TRACKER_DATA_DIR": str(data_dir),
         "PAPER_TRACKER_JOURNAL_CONFIG": str(data_dir / "journal-config.json"),
         "PAPER_TRACKER_LLM_CONFIG": str(secrets_dir / "llm-config.json"),
-        "PAPER_TRACKER_GIST_CONFIG": str(secrets_dir / "github-gist.json"),
         "PAPER_TRACKER_ARCHIVE_FILE": str(archive_dir / "archive.json"),
         "ARCHIVE_API_URL": f"http://127.0.0.1:{archive_port}/api/archive",
         "MANAGER_HOST": "127.0.0.1",

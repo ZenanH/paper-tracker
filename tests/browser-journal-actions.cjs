@@ -84,6 +84,29 @@ async function stub(page, model, {failedDate = false} = {}) {
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     const model = {saved: fixture(), posts: [], failSecond: false, legacySupplementReads: 0}; await stub(page, model);
     await page.goto(`${baseURL}?mode=pending&date=2026-07-20&journals=`); await ready(page);
+    await page.locator('#settings-button').click();
+    assert.deepEqual(await page.locator('#settings-dialog .settings-section h3').allTextContents().then(values => values.map(value => value.trim())), ['Appearance', 'Model', 'AI title filter']);
+    assert.equal(await page.locator('[id*="gist"],[id^="github-"]').count(), 0);
+    await page.locator('#llm-model').fill('unsaved-test-model');
+    await page.locator('#llm-api-key').fill('unsaved-test-key');
+    for (const width of [320, 1440]) {
+      await page.setViewportSize({width, height: 844});
+      for (const theme of ['light', 'dark']) {
+        await page.locator(`button[data-theme="${theme}"]`).click();
+        assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+        if (process.env.PAPER_TRACKER_SCREENSHOTS) {
+          const fs = require('node:fs'), path = require('node:path');
+          fs.mkdirSync(process.env.PAPER_TRACKER_SCREENSHOTS, {recursive: true});
+          await page.screenshot({path: path.join(process.env.PAPER_TRACKER_SCREENSHOTS, `settings-${width}-${theme}.png`)});
+        }
+      }
+    }
+    await page.locator('button[data-theme="system"]').click();
+    await page.locator('#close-settings').click();
+    await page.waitForFunction(() => document.querySelector('#llm-api-key').value === '');
+    assert.equal(await page.locator('#llm-api-key').inputValue(), '');
+    await page.setViewportSize({width: 1440, height: 1000});
     assert.equal(model.legacySupplementReads, 0);
     assert.equal(await page.locator('#paper-modes,#date-row,[data-archive],#bulk-archive').count(), 0);
     assert.equal(await page.locator('#filter-toggle,#journal-filters').count(), 0);

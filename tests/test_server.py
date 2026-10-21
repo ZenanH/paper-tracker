@@ -40,14 +40,14 @@ class ServerTests(unittest.TestCase):
             environment["PAPER_TRACKER_DATA_DIR"] = directory
             code = (
                 "import sys,json; sys.path.insert(0,sys.argv[1]); "
-                "import common,llm_settings,gist_sync,user_backup; "
+                "import common,llm_settings,archive_recovery; "
                 "print(json.dumps([str(common.DATA_DIR),str(llm_settings.CONFIG_PATH),"
-                "str(gist_sync.CONFIG_PATH),str(user_backup.ARCHIVE_FILE)]))"
+                "str(archive_recovery.ARCHIVE_FILE)]))"
             )
             actual = json.loads(subprocess.check_output([sys.executable, "-B", "-c", code, str(scripts)], env=environment))
             root = Path(directory).resolve()
             self.assertEqual(actual, [str(root), str(root / "secrets/llm-config.json"),
-                                      str(root / "secrets/github-gist.json"), str(root / "archive/archive.json")])
+                                      str(root / "archive/archive.json")])
 
     def test_static_allowlist_serves_only_public_data(self):
         with tempfile.TemporaryDirectory() as directory:

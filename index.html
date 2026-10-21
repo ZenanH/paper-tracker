@@ -13,8 +13,8 @@
     </script>
     <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
     <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="assets/styles.css?v=8b9b439fe7" />
-    <script type="module" src="assets/app.js?v=bb6615b9f0">
+    <link rel="stylesheet" href="assets/styles.css?v=9055407e94" />
+    <script type="module" src="assets/app.js?v=6f963f05e4">
     </script>
     <script type="module" src="assets/liquid-glass.js?v=28794e8f9b"></script>
   </head>
@@ -253,43 +253,6 @@
           </div>
           <p id="filter-status" class="inline-status" role="status">
           </p>
-        </section>
-        <section class="settings-section" aria-labelledby="gist-heading">
-          <h3 id="gist-heading">Gist backup</h3>
-          <p id="gist-summary" class="muted">Not connected</p>
-          <details id="github-app-settings">
-            <summary>GitHub OAuth app</summary>
-            <div class="field">
-              <label for="github-client-id">Client ID</label>
-              <input id="github-client-id" autocomplete="off" spellcheck="false" placeholder="OAuth app Client ID" />
-            </div>
-          </details>
-          <div class="form-actions">
-            <button class="button" id="github-connect" type="button">Connect GitHub</button>
-            <button class="button quiet" id="github-disconnect" type="button" hidden>Disconnect</button>
-            <button class="button primary" id="gist-export" type="button">Export to Gist</button>
-          </div>
-          <div id="github-authorization" class="gist-authorization" hidden>
-            <p>Enter this code on GitHub:</p>
-            <code id="github-user-code"></code>
-            <a class="button" href="https://github.com/login/device" target="_blank" rel="noopener noreferrer">Open GitHub</a>
-            <p class="muted" id="github-auth-status" role="status"></p>
-          </div>
-          <form id="gist-import-form">
-            <div class="field">
-              <label for="gist-url">Gist URL or ID</label>
-              <input id="gist-url" autocomplete="off" spellcheck="false" placeholder="https://gist.github.com/…" required />
-            </div>
-            <div class="form-actions"><button class="button" id="gist-preview" type="submit">Preview import</button></div>
-          </form>
-          <div id="gist-import-preview" class="gist-preview" hidden>
-            <p id="gist-preview-counts"></p>
-            <p class="muted">Replaces your current data. A local recovery copy will be kept.</p>
-            <button class="button primary" id="gist-import" type="button">Import</button>
-          </div>
-          <p id="gist-status" class="inline-status" role="status"></p>
-          <a id="gist-result-link" target="_blank" rel="noopener noreferrer" hidden>Open backup on GitHub</a>
-          <p class="muted">Anyone with the Gist link can read it. API settings are excluded.</p>
         </section>
       </div>
     </dialog>

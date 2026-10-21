@@ -14,7 +14,7 @@
 - 按期刊浏览最近三个月论文，支持标题搜索、整刊归档和批量收藏。
 - 展示中科院 2025 升级版分区、Top 标记和可核验的影响因子。
 - 取消关注停止采集并保留收藏，可按原稳定 ID 重新关注。
-- 设置中配置翻译/过滤模型、过滤规则和 GitHub Gist 备份。
+- 设置中配置外观、翻译/过滤模型和标题过滤规则。
 - 论文、配置、阅读状态、收藏和凭据统一保存在容器 `/data`，升级和重建容器保留数据。
 - 点击页面顶部 **Refresh** 立即启动采集，对所选期刊的新论文执行过滤，再翻译标题；任务结束后自动重读列表。处理中可继续浏览，按钮禁用以避免重复任务。未配置模型时继续采集，跳过翻译与过滤。
 
@@ -73,17 +73,15 @@ docker run -d --name paper-tracker --init --restart unless-stopped \
   task-status.json            # 任务状态
   archive/
     archive.json              # 已读状态和永久收藏
-    backups/                  # Gist 恢复前的回退副本
   secrets/
     llm-config.json           # 模型配置与密钥
-    github-gist.json          # GitHub 授权配置与令牌
 ```
 
 `/data/secrets` 权限为 `0700`，凭据文件为 `0600`。网页只公开论文日期清单、期刊元数据和日期论文文件；运行配置、审计、归档原文件及凭据不能作为静态文件访问。数据不会打进镜像或提交到 Git。
 
 首次启动从默认 32 刊初始化，之后保留用户修改。常驻管理服务在北京时间 01:00、13:00 更新论文，启动时恢复中断状态并按需补跑；页面 **Refresh** 可手动触发同一处理流程。实际完成时间取决于数据源和模型，不承诺即时完成。
 
-可在 `.env` 中设置 `CROSSREF_MAILTO`（可选）和公开的 `PAPER_TRACKER_GITHUB_CLIENT_ID`。模型 Base URL、API Key 和模型名称在网页 Settings 中配置。
+可在 `.env` 中设置 `CROSSREF_MAILTO`（可选）。模型 Base URL、API Key 和模型名称在网页 Settings 中配置。
 
 更新镜像并重建容器：
 
@@ -96,14 +94,8 @@ docker compose logs --tail=100 paper-tracker
 
 挂载目录保持不变即可保留论文、收藏和设置。迁移服务器时先停止容器，再备份整个宿主数据目录；其中包含密钥和令牌，完整备份须加密。不要自动清空数据目录。
 
-## Gist 备份与恢复
-
-在 [GitHub OAuth Apps](https://github.com/settings/developers) 注册 OAuth App，开启 Enable Device Flow 并关闭 Allow wildcard matching。Device Flow 不使用 Redirect URI；可填写自己的站点地址。只需公开 Client ID，不需要 Client Secret。
-
-在 Settings → Gist backup 中连接 GitHub、导出 Secret Gist，或预览并导入自己账号拥有的 Gist。Secret Gist 不会公开列出，但知道链接的人可以读取。备份不包含模型/API 配置、密钥、令牌、日志或内部缓存。恢复会替换期刊、论文和阅读数据，并在导入前保存 `/data/archive/backups/` 回退副本。
-
 ## CI 镜像构建
 
-GitHub Actions 在 Pull Request 中执行单元测试、语法检查、镜像构建和容器持久化验收；测试使用临时数据，不连接真实模型或 GitHub Gist。推送到 `main` 后，全部检查通过才向 GHCR 发布 `latest` 和提交 SHA 标签；`v*` 标签发布对应版本镜像。
+GitHub Actions 在 Pull Request 中执行单元测试、语法检查、镜像构建和容器持久化验收；测试使用临时数据，不调用真实模型。推送到 `main` 后，全部检查通过才向 GHCR 发布 `latest` 和提交 SHA 标签；`v*` 标签发布对应版本镜像。
 
 镜像构建覆盖 `linux/amd64` 和 `linux/arm64`。CI 不执行日常采集，也不包含任何运行数据或凭据。GHCR 软件包需要设为 Public 才能匿名拉取；私有软件包需要先登录有权限的账号。

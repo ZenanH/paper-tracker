@@ -37,11 +37,6 @@ const state = {
   filterIds: new Set(),
   prompt: '',
   match: null,
-  gistBusy: false,
-  gistFlow: null,
-  gistPoll: null,
-  gistPreview: null,
-  gistResultSeen: null,
 };
 const escape = (value = '') => String(value ?? '').replace(/[&<>"']/g, c => ({
   '&': '&amp;',
@@ -398,9 +393,9 @@ function renderUpdate() {
   const stale = !Number.isFinite(checked) || checked < expected;
   const job = state.admin?.job;
   const running = job?.status === 'running';
-  const task = ({metrics: 'IF update', add: 'Journal setup', delete: 'Unfollow', 'restore-filtered': 'Paper restore', 'gist-export': 'Gist export', 'gist-preview': 'Gist preview', 'gist-import': 'Gist import'})[job?.kind] || 'Paper update';
+  const task = ({metrics: 'IF update', add: 'Journal setup', delete: 'Unfollow', 'restore-filtered': 'Paper restore'})[job?.kind] || 'Paper update';
   const paperStage = ['manual', 'daily', 'daily-catchup', 'backfill'].includes(job?.kind) && ({collect: 'Collecting and filtering papers…', translate: 'Translating titles…', metrics: 'Updating IF…', validate: 'Checking papers…'})[job?.stage];
-  const active = paperStage || ({metrics: 'Updating IF…', add: 'Adding journal…', delete: 'Unfollowing journal…', 'restore-filtered': 'Restoring papers…', 'gist-export': 'Uploading backup…', 'gist-preview': 'Checking backup…', 'gist-import': 'Importing data…'})[job?.kind] || 'Updating papers…';
+  const active = paperStage || ({metrics: 'Updating IF…', add: 'Adding journal…', delete: 'Unfollowing journal…', 'restore-filtered': 'Restoring papers…'})[job?.kind] || 'Updating papers…';
   const jobMessage = running ? active : job?.status === 'failed' ? `${task} failed` : job?.status === 'interrupted' ? `${task} interrupted` : state.adminLoaded && !state.admin ? 'Management offline' : '';
   const jobMarkup = jobMessage ? `<span class="job-status${running ? '' : ' failure'}">${running ? '<span class="saving-spinner" aria-hidden="true"></span>' : ''}${escape(jobMessage)}</span>` : '';
   $('update-status').title = `Collection: ${m.default_date} · Updated: ${time(m.updated_at)}`;
@@ -517,7 +512,6 @@ function applyArchiveLocally(action, records) {
 }
 async function mutateArchive(action, records) {
   if (state.busy || !records.length) return;
-  if (state.admin?.job?.status === 'running' && state.admin.job.kind === 'gist-import') return notify('Import in progress. Please wait.', true);
   const snapshot = state.archive;
   state.archiveRevision++;
   state.busy = true;
@@ -669,104 +663,8 @@ function renderAdmin() {
     $('filter-journal-list').dataset.signature = filterSignature;
   }
   renderJournals();
-  renderGist();
 }
 
-function renderGist() {
-  const gist = state.admin?.gist || {};
-  const running = state.admin?.job?.status === 'running';
-  const disabled = !state.admin || running || state.adminBusy || state.gistBusy;
-  $('github-connect').disabled = disabled || Boolean(state.gistFlow);
-  $('github-disconnect').disabled = disabled;
-  $('github-disconnect').hidden = !gist.connected && !gist.expired;
-  $('gist-export').disabled = disabled || !gist.connected;
-  $('gist-preview').disabled = disabled || !gist.connected;
-  $('gist-import').disabled = disabled || !gist.connected || !state.gistPreview || state.busy;
-  $('github-client-id').disabled = disabled || Boolean(state.gistFlow);
-  if (document.activeElement !== $('github-client-id') && !$('github-client-id').value) $('github-client-id').value = gist.client_id || '';
-  $('gist-summary').textContent = gist.error || (gist.connected ? `Connected as ${gist.login}` : gist.expired ? 'Authorization expired. Connect again.' : 'Not connected');
-  const job = state.admin?.job;
-  if (job?.kind?.startsWith('gist-') && job.finished_at && state.gistResultSeen !== job.finished_at) {
-    state.gistResultSeen = job.finished_at;
-    if (job.status === 'failed') {
-      inline('gist-status', englishMessage(job.message, 'Backup failed. Try again.'), true);
-    } else if (job.status === 'success') {
-      const result = job.result || {};
-      if (job.kind === 'gist-preview') {
-        state.gistPreview = result;
-        $('gist-import-preview').hidden = !result.preview_id;
-        $('gist-preview-counts').textContent = `${countLabel(result.journals || 0, 'journal')} · ${countLabel(result.papers || 0, 'paper')} · ${countLabel(result.favorites || 0, 'favorite')}`;
-        inline('gist-status', 'Ready to import');
-      } else if (job.kind === 'gist-export') {
-        if (/^https:\/\/gist\.github\.com\/[A-Za-z0-9-]+\/[a-f0-9]{20,40}$/.test(result.gist_url || '')) {
-          $('gist-result-link').href = result.gist_url;
-          $('gist-result-link').hidden = false;
-          $('gist-url').value = result.gist_url;
-        }
-        inline('gist-status', 'Backup saved');
-      } else {
-        state.gistPreview = null;
-        $('gist-import-preview').hidden = true;
-        state.llmDirty = false;
-        state.filterDirty = false;
-        inline('gist-status', 'Import complete');
-      }
-    }
-    $('gist-import').disabled = disabled || !gist.connected || !state.gistPreview || state.busy;
-  }
-  if (running && job.kind?.startsWith('gist-')) inline('gist-status', ({'gist-export': 'Uploading backup…', 'gist-preview': 'Checking backup…', 'gist-import': 'Importing data…'})[job.kind]);
-}
-
-async function githubConnect() {
-  state.gistBusy = true;
-  inline('gist-status', 'Connecting to GitHub…');
-  renderGist();
-  try {
-    const flow = await request('api/admin/gist/auth/start', {method: 'POST', body: JSON.stringify({client_id: $('github-client-id').value.trim()}), timeout: 60000});
-    state.gistFlow = flow;
-    $('github-user-code').textContent = flow.user_code;
-    $('github-authorization').hidden = false;
-    $('github-auth-status').textContent = 'Waiting for GitHub approval…';
-    inline('gist-status', '');
-    state.gistPoll = setTimeout(githubPoll, flow.interval * 1000);
-  } catch (e) {
-    inline('gist-status', e.message, true);
-  } finally {
-    state.gistBusy = false;
-    renderGist();
-  }
-}
-
-async function githubPoll() {
-  const flow = state.gistFlow;
-  if (!flow) return;
-  try {
-    const result = await request('api/admin/gist/auth/poll', {method: 'POST', body: JSON.stringify({flow_id: flow.flow_id}), timeout: 60000});
-    if (state.gistFlow !== flow) return;
-    if (result.pending) {
-      state.gistPoll = setTimeout(githubPoll, result.interval * 1000);
-      return;
-    }
-    state.gistFlow = null;
-    $('github-authorization').hidden = true;
-    $('github-user-code').textContent = '';
-    await loadAdmin();
-    inline('gist-status', 'GitHub connected');
-  } catch (e) {
-    state.gistFlow = null;
-    $('github-auth-status').textContent = e.message;
-  }
-  renderGist();
-}
-
-async function gistTask(action, payload = {}) {
-  if (state.busy) return notify('Wait for the current save to finish.', true);
-  if (action !== 'import') {
-    state.gistPreview = null;
-    $('gist-import-preview').hidden = true;
-  }
-  await startJob(`/gist/${action}`, payload);
-}
 async function loadAdmin() {
   clearTimeout(state.poll);
   const wasRunning = state.admin?.job?.status === 'running';
@@ -774,10 +672,6 @@ async function loadAdmin() {
   try {
     state.admin = await adminRequest('/journals');
     state.adminLoaded = true;
-    if (state.admin.job?.kind === 'gist-import' && state.admin.job.status === 'success' && previousJob?.finished_at !== state.admin.job.finished_at) {
-      state.filterDirty = false;
-      state.llmDirty = false;
-    }
     renderAdmin();
     const newlyCompleted = previousJob && state.admin.job?.finished_at && previousJob.finished_at !== state.admin.job.finished_at;
     if ((wasRunning || state.refreshAfterJob || newlyCompleted) && state.admin.job?.status !== 'running') {
@@ -812,7 +706,7 @@ async function startJob(path, payload = {}) {
     state.admin = await adminRequest(path, payload);
     state.refreshAfterJob = true;
     renderAdmin();
-    notify(path.startsWith('/gist/') ? 'Backup task started' : 'Update started');
+    notify('Update started');
     clearTimeout(state.poll);
     state.poll = setTimeout(loadAdmin, 1500);
     return true;
@@ -987,36 +881,6 @@ function bindEvents() {
   for (const id of ['settings-dialog', 'rules-dialog']) $(id).addEventListener('click', e => closeDialog($(id), e));
   $('settings-dialog').addEventListener('close', () => {
     $('llm-api-key').value = '';
-    clearTimeout(state.gistPoll);
-    state.gistFlow = null;
-    $('github-user-code').textContent = '';
-    $('github-authorization').hidden = true;
-  });
-  $('github-connect').addEventListener('click', githubConnect);
-  $('github-disconnect').addEventListener('click', async () => {
-    state.gistBusy = true;
-    renderGist();
-    try {
-      await adminRequest('/gist/disconnect', {});
-      state.gistPreview = null;
-      $('gist-import-preview').hidden = true;
-      await loadAdmin();
-      inline('gist-status', 'Disconnected');
-    } catch (e) { inline('gist-status', e.message, true); }
-    finally { state.gistBusy = false; renderGist(); }
-  });
-  $('gist-export').addEventListener('click', () => gistTask('export'));
-  $('gist-import-form').addEventListener('submit', e => {
-    e.preventDefault();
-    gistTask('preview', {gist_url: $('gist-url').value.trim()});
-  });
-  $('gist-url').addEventListener('input', () => {
-    state.gistPreview = null;
-    $('gist-import-preview').hidden = true;
-    renderGist();
-  });
-  $('gist-import').addEventListener('click', () => {
-    if (state.gistPreview) gistTask('import', {preview_id: state.gistPreview.preview_id, confirmed: true});
   });
   $('journal-search-form').addEventListener('submit', matchJournal);
   $('journal-match').addEventListener('click', e => {

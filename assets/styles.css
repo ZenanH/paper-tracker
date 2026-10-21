@@ -1050,31 +1050,6 @@ input[type=checkbox] {
   margin-top: 24px
 }
 
-.gist-authorization,
-.gist-preview {
-  margin-block: 16px;
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-}
-
-.gist-authorization code {
-  display: block;
-  margin-block: 12px;
-  font-size: 24px;
-  letter-spacing: .12em;
-  user-select: all;
-}
-
-#gist-result-link {
-  display: inline-block;
-  overflow-wrap: anywhere;
-}
-
-#gist-result-link[hidden] { display: none; }
-
-#github-app-settings { margin-block: 12px; }
-
 .settings-section>.muted {
   margin: 6px 0 14px
 }

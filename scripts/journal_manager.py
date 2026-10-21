@@ -9,8 +9,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import gist_sync
-import user_backup
+import archive_recovery
 from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler
 from http_service import ThreadingHTTPServer
@@ -261,20 +260,6 @@ def delete_pipeline(journal_id: str) -> None:
     append_log(f"Stopped following journal; removed {len(removed_ids)} window records; favorites retained")
 
 
-def gist_export_pipeline() -> dict:
-    with user_backup.archive_lock():
-        files = user_backup.snapshot_files()
-    return gist_sync.export_files(files)
-
-
-def gist_preview_pipeline(url: str) -> dict:
-    return user_backup.stage_import(gist_sync.import_files(url))
-
-
-def gist_import_pipeline(preview_id: str) -> dict:
-    return user_backup.restore_preview(preview_id, lambda: run_command(["python3", "scripts/validate_data.py"]))
-
-
 def execute_job(kind: str, callback: Callable[[], Any]) -> None:
     try:
         result = callback()
@@ -360,10 +345,6 @@ def journal_payload() -> dict[str, Any]:
     excluded = load_excluded(DATA_DIR).get("entries", {})
     with JOB_LOCK:
         job = dict(JOB)
-    try:
-        gist = gist_sync.public_status()
-    except ValueError:
-        gist = {"connected": False, "error": "GitHub settings are unreadable."}
     return {
         "journals": journals,
         "filter_journal_ids": [
@@ -374,7 +355,6 @@ def journal_payload() -> dict[str, Any]:
         "excluded_count": len(excluded),
         "filter_prompt": read_json(DATA_DIR / "filter-config.json", {}).get("prompt", ""),
         "llm": public_llm_settings(),
-        "gist": gist,
         "job": {**job, "next_run": next_run().isoformat()},
         "timezone": "Asia/Shanghai",
         "schedule": "01:00, 13:00",
@@ -438,41 +418,6 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         try:
             self.check_origin()
-            if self.request_path().startswith("/api/admin/gist/"):
-                payload = self.read_payload()
-                route = self.request_path().rsplit("/gist/", 1)[1]
-                with OPERATION_LOCK:
-                    with JOB_LOCK:
-                        if JOB["status"] == "running":
-                            raise ValueError("Wait for the running task before changing backups.")
-                    if route == "auth/start":
-                        result = gist_sync.begin_authorization(payload.get("client_id"))
-                    elif route == "auth/poll":
-                        result = gist_sync.poll_authorization(payload.get("flow_id"))
-                    elif route == "disconnect":
-                        result = gist_sync.disconnect()
-                    elif route == "export":
-                        start_job("gist-export", gist_export_pipeline)
-                        self.send_json(202, journal_payload())
-                        return
-                    elif route == "preview":
-                        url = payload.get("gist_url")
-                        gist_sync.gist_id(url)
-                        start_job("gist-preview", lambda: gist_preview_pipeline(url))
-                        self.send_json(202, journal_payload())
-                        return
-                    elif route == "import":
-                        preview_id = payload.get("preview_id")
-                        if payload.get("confirmed") is not True or not isinstance(preview_id, str):
-                            raise ValueError("Preview the Gist and confirm the import first.")
-                        start_job("gist-import", lambda: gist_import_pipeline(preview_id))
-                        self.send_json(202, journal_payload())
-                        return
-                    else:
-                        self.send_json(404, {"error": "not found"})
-                        return
-                self.send_json(200, result)
-                return
             if self.request_path() == "/api/admin/journals/resolve":
                 payload = self.read_payload()
                 name = payload.get("name")
@@ -601,7 +546,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def sync_if_needed() -> None:
-    user_backup.recover_restore()
+    archive_recovery.recover_restore()
     config_existed = CONFIG_PATH.exists()
     ensure_config()
     journals_path = DATA_DIR / "journals.json"

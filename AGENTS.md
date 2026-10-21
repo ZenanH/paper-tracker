@@ -14,11 +14,10 @@
 ## 文件、持久化与凭据
 
 - `server/run.py` 是镜像入口，启动静态/数据网关、`archive-api` 和 `journal-manager`；网页与 API 同源。网关在容器内监听 `0.0.0.0:8080`，内部 API 只监听随机回环端口。网关健康检查须确认两个内部服务均可用；子进程异常退出时容器退出，收到 SIGTERM 时终止子进程。
-- 所有持久文件统一位于容器 `/data`；服务器只需挂载一个可读写目录。根目录保存日期论文、期刊元数据、运行配置、翻译/分类缓存、过滤审计和任务状态；`/data/archive/archive.json` 保存已读状态、永久收藏及导入后数据集标识；`/data/secrets/` 保存受保护凭据，`/data/archive/backups/` 保存恢复回退副本。启动、升级和容器重建不得清空挂载目录。
+- 所有持久文件统一位于容器 `/data`；服务器只需挂载一个可读写目录。根目录保存日期论文、期刊元数据、运行配置、翻译/分类缓存、过滤审计和任务状态；`/data/archive/archive.json` 保存已读状态、永久收藏及导入后数据集标识；`/data/secrets/` 保存受保护凭据。启动、升级和容器重建不得清空挂载目录。
 - 2026-10-21 用户已授权清空此前的 `data/`、`archive/` 与 `.runtime/` 数据和备份，作为新版本起点；本次保留 `secrets/`，后续不得自动重复清空。
 - Compose 默认发布 `127.0.0.1:18898:8080`，地址为 `http://127.0.0.1:18898/`；公网访问由带 HTTPS 和认证的反向代理提供。容器默认 UID/GID 为 1000:1000，挂载目录须提前创建并授予对应用户写权限。测试使用临时目录，不能自动覆盖本机现有凭据。
-- 模型凭据在 `/data/secrets/llm-config.json`；GitHub OAuth 凭据在 `/data/secrets/github-gist.json`。目录权限 0700，文件 0600；原子写入，管理 API 永不回传密钥或令牌。静态网关只公开 `manifest.json`、`journals.json` 和日期论文文件，其他 `/data` 文件均须拒绝。日志和前端产物不得包含凭据。
-- GitHub OAuth Client ID 是公开标识，可配置于设置界面或 `PAPER_TRACKER_GITHUB_CLIENT_ID`；无需 Client Secret。不要要求用户将访问令牌发到对话中。
+- 模型凭据在 `/data/secrets/llm-config.json`。目录权限 0700，文件 0600；原子写入，管理 API 永不回传密钥或令牌。静态网关只公开 `manifest.json`、`journals.json` 和日期论文文件，其他 `/data` 文件均须拒绝。日志和前端产物不得包含凭据。
 - `CROSSREF_MAILTO` 仅用于请求联系信息，不主动显示于 UI，不硬编码邮箱。未配置时不附加邮箱参数。
 - GitHub Actions 先运行编译、单元测试和容器持久化验收，再构建 amd64/arm64 镜像；main 通过后发布 GHCR latest 与 SHA 标签，v* 标签发布版本镜像，PR 只构建验证不发布。Dockerfile 显式复制源文件，`.dockerignore` 排除运行数据、凭据及本机报告。日常采集、翻译、过滤和维护由容器执行，不依赖 CI。包含 `/data/secrets/` 的完整备份必须先加密。
 
@@ -27,7 +26,7 @@
 - 业务时区统一 `Asia/Shanghai`；常驻服务每 12 小时更新一次，固定北京时间 **01:00、13:00**。调度允许延迟，不能承诺精确完成时刻。
 - 查询和普通论文数据保留截至当天的滚动三个自然月，按日历月运算，不能固定成 90 天。
 - 每轮核对完整发表窗口，并从每刊上次成功水位回查索引变化，留一天重叠；索引查询不限制发表日期，以覆盖缺少日期的新收录记录。首次/回填覆盖完整窗口。
-- 手动更新、启动补跑、定时任务、期刊增删、指标维护、Gist 任务及配置修改互斥。失败不清空已有论文，不推进失败期刊成功水位。
+- 手动更新、启动补跑、定时任务、期刊增删、指标维护及配置修改互斥。失败不清空已有论文，不推进失败期刊成功水位。
 - 启动恢复 `/data/task-status.json`，将中断的运行任务标为失败。补跑和页面落后判断比较最近一次 01:00/13:00 时段与 `collection_checked_at`，不能只比较昨日日期。定向新增期刊或指标更新不得冒充全刊采集。
 - 按首次在线发表日期归档；完整日期或可解释时区时间戳优先于正式卷期。只有日期则保留来源日期，不虚构时分秒。在线日期只有年月时不能被未来正式印刷日期替代。
 - 无完整可用日期（仅年月、仅年份、缺失或无效）时，`published_date` 使用**首次处理时北京时间所在月份的 1 日**；保留 `raw_publication_date`、`date_precision`、`date_source`，写入 `date_inferred=true`、`date_inference=current-month-start`。
@@ -90,35 +89,30 @@
 - 整刊 Archive all 位于期刊标题行，覆盖该刊窗口内全部未读论文，包括其他页和搜索未命中的论文，保持收藏独立。数据未加载完整或部分失败时禁用。无单篇/所选归档，复选框只用于批量收藏。
 - 期刊标题在本刊范围吸顶，下刊自然替换。动态计算导航、全局保存状态和批量选择栏高度；窄屏刊名完整可读，操作不遮挡。
 - 保存按最多 128 条/批；持续显示旋转动效、服务端确认数量/总数和当前批次。超过 8 秒提示连接较慢，单次写请求最多 60 秒；不能用时间或已发送数伪造进度。失败核对已保存状态期间保持提示，允许重试剩余论文，不能假装全部回滚。
-- 收藏和阅读状态乐观更新，`Prefer: return=minimal`；请求期间禁重复修改，过期读取不覆盖后发操作，切换页面仍可浏览。导入中禁止本页保存；导入后数据集标识阻止旧浏览器重新写入旧数据。
+- 收藏和阅读状态乐观更新，`Prefer: return=minimal`；请求期间禁重复修改，过期读取不覆盖后发操作，切换页面仍可浏览。兼容已有数据集标识，防止过期浏览器写入已替换的数据。
 - 星标固定尺寸，aria-label、aria-pressed、键盘焦点完整，切换不引起标题跳动。标题链接只允许 HTTP(S)，安全文本渲染。
-- 全局任务提示放顶部，按 Updating papers/Updating IF/Adding journal/Gist import 等说明实际任务；失败/中断明确，不在底部显示笼统 Updating。
+- 全局任务提示放顶部，按 Updating papers/Updating IF/Adding journal 等说明实际任务；失败/中断明确，不在底部显示笼统 Updating。
 - 顶部 Refresh 必须发送 `POST /api/admin/run`、`{"mode":"daily"}` 启动完整更新，按现有设置采集与过滤、翻译并校验。点击立即反馈，任务运行中禁止重复启动但允许浏览；显示真实阶段，成功/部分失败/任务失败分别反馈，结束后清日期缓存并重读论文和阅读状态。未配置模型时继续采集并跳过模型调用。
 - Find/Search 统一颜色、尺寸和样式。搜索框鼠标/触摸点击和输入不出现高亮外轮廓，Tab 保留可见焦点。
 - system/light/dark，首屏不闪主题；遵循减少动画、减少透明度和强制颜色。长标题、长刊名、窄屏、空/错误/加载状态不能横向溢出、遮挡或跳动。
 - 沿用 emil-design-eng 和 liquid-glass skill；玻璃仅导航/批量操作栏，12px 静态模糊，正文实色，静态环境渐变、中性透明材质和边缘高光。Chromium 渐进增强 SVG 边缘折射，其他浏览器 CSS 回退；贴图分片且只在尺寸改变时重建，不监听滚动。无动画键盘操作，弹窗内部滚动，文字可读性优先。
 - 旧 `view=history` 映射 New papers，library/archive/favorites 映射 Favorites，移除旧 library/mode/date/journals 及浏览器隐藏期刊偏好对列表的限制。
 
-## 归档、收藏与 Gist
+## 归档、收藏与备份
 
 - 普通已读状态按三个月窗口清理，Favorites 永久保留，除用户取消星标或明确的独立删除操作外不移除；Unfollow 保留收藏。收藏记录含 ID、期刊、发表日期、中英文标题、URL、DOI、翻译状态与收藏时间，不依赖日期文件仍存在。
 - `/data/archive/archive.json` 缺失可初始化，存在但损坏必须报错拒绝覆盖。收藏与 items/cleared_items 独立，跨设备共享；清缓存、容器重启或镜像升级不得改变状态。
-- 右上角设置仅提供 **Gist 导出/导入**，不提供浏览器下载/本地文件导入。用户通过 GitHub OAuth Device Flow 授权，仅申请 `gist` scope，不索取 Client Secret。
-- 注册 OAuth App：Redirect URI 可填写站点地址；Device Flow 不使用它。关闭 wildcard，开启 Enable Device Flow。授权码、GitHub 确认链接显示于 UI，device_code 和访问令牌仅在服务端；按 GitHub interval/slow_down 规则轮询，过期/拒绝明确提示。令牌到期重新连接；Disconnect 清除本地令牌，GitHub 端撤销需在 GitHub 设置完成。
-- 每次导出新建 `public:false` 的 Secret Gist。Secret Gist 仅不公开列出，知道链接仍可读取；UI 简短提示，不宣称私密或加密。导入只接受已连接账号拥有的 Gist。
-- 导出是**精简可迁移用户数据**：关注/未关注期刊元数据与分区/IF，窗口内论文及中文标题，已读状态、全部收藏、过滤选择与规则。明确排除模型/API 配置、任何密钥/令牌、运行日志及内部缓存/过滤审计。
-- 格式为版本化 `paper-tracker.json` 清单和按期刊分片 JSON，UTF-8 紧凑编码，清单记录各片 SHA-256；大刊分片约 650KB，最多 200 文件、总计 64MiB，拒绝 GitHub 截断响应，不无声缺数据。
-- 导入先检查账号归属、版本、精确文件集合、校验值、期刊固定快照身份、唯一论文 ID、安全 URL、状态及字段，再显示期刊/论文/收藏数量。预览有效期 30 分钟，用户点击 Import 才替换当前数据；预览本身不修改阅读数据。
-- 导出与采集互斥，快照与归档写入共享进程间文件锁，避免不一致。导入先在 `/data/archive/backups/backup-*` 保存受管理数据和归档回退副本，写 `.restore-pending.json` 标记，再原子更新各 JSON，清单最后提交，并校验；失败回滚，重启发现标记先恢复。不能覆盖 `/data/secrets/`。
-- 导入后的数据不冒充刚采集，`collection_checked_at=null`；不恢复远端缓存或任务状态。界面重读清单、日期和归档，后续周期正常补更新。备份目录随 `/data` 挂载保留，由用户自行管理历史副本。
+- Settings 仅提供 Appearance、Model 和 Title filter；不提供 GitHub 授权、云端备份、导入导出或本地文件上传入口。
+- 备份与迁移由管理员在停止容器后复制整个宿主 `/data` 目录完成；包含模型密钥的完整备份必须先加密。
+- 升级保留旧凭据文件和历史备份，不自动删除用户数据。仅保留旧版中断恢复的本地回滚兼容：发现 `.restore-pending.json` 后先核验回退副本，再恢复并清除标记；无效或缺失的副本必须拒绝恢复，不覆盖当前文件。
 
 ## 检查、部署和维护
 
-- 关键测试覆盖日期/月边界、推定一次与准确日期修正、在线优先日期、DOI 去重、索引水位与失败保留、定时互斥/启动恢复、收藏与已读独立、Unfollow 保留和重新关注、损坏归档拒写、模型结构校验/脱敏、过滤阈值/缓存/生物力学保护、Gist 授权/分片/校验/回滚/旧客户端隔离。
+- 关键测试覆盖日期/月边界、推定一次与准确日期修正、在线优先日期、DOI 去重、索引水位与失败保留、定时互斥/启动恢复、收藏与已读独立、Unfollow 保留和重新关注、损坏归档拒写、模型结构校验/脱敏、过滤阈值/缓存/生物力学保护、移除功能的 API 拒绝访问、旧恢复标记兼容和旧客户端隔离。
 - Python：`python3 -m unittest discover -s tests -q`；编译检查 `python3 -m compileall -q scripts server tests`；JavaScript 用 `node --check assets/app.js`、`node --check assets/liquid-glass.js`；提交前 `git diff --check`。
-- `tests/browser-journal-actions.cjs` 的 API 全部拦截，只测试整刊归档、搜索、慢请求、部分失败和布局，不写真实用户数据。Gist 浏览器回归也只用模拟 API；真实 Gist 写入必须由用户授权并主动发起。
+- `tests/browser-journal-actions.cjs` 的 API 全部拦截，只测试整刊归档、搜索、慢请求、部分失败和布局，不写真实用户数据。设置页回归确认仅保留外观、模型和标题过滤，API Key 在关闭弹窗后清空。
 - 桌面/手机宽度、深浅主题、减少动画下核验吸顶、弹窗滚动、点击/Tab 焦点、标题搜索、保存进度和玻璃效果；观察运行时长任务与交互，不能仅靠截图宣称流畅。
 - 变更后更新 index.html 中静态资源内容 hash。使用 `docker compose config --quiet` 核验编排配置，构建镜像并执行 `python3 tests/smoke_container.py paper-tracker:ci`，确认单一 `/data` 挂载、Refresh、收藏跨容器重建保留、凭据权限与静态拒读、SIGTERM 退出。镜像发布或推送代码须在用户授权范围内；不能只配置工作流就宣称 CI 构建成功。
 - 手动完整更新使用 UI，或 `POST /api/admin/run`，JSON `{"mode":"daily"}`；显式回填可用 mode=backfill、可选非空有效 journal_ids。指标更新 `POST /api/admin/metrics/update`。维护脚本为 collect.py、translate.py、sync_cas.py、update_metrics.py、validate_data.py。
-- 需要维护脚本写入运行数据时先保证常驻任务空闲，避免绕开互斥。真实运行检查报告时间、刊数及失败源，区分手动/启动补跑成功与实际定时触发成功；不将模拟 GitHub/模型测试表述为用户已授权或真实导出成功。
+- 需要维护脚本写入运行数据时先保证常驻任务空闲，避免绕开互斥。真实运行检查报告时间、刊数及失败源，区分手动/启动补跑成功与实际定时触发成功；不将模拟模型测试表述为真实模型调用成功。
 - 本机真实数据与验收快照属于 `.runtime/` 及 `data/`、`archive/`、`secrets/`，不向代码仓库提交，也不写入说明中的敏感凭据。清理代码时默认保留这些用户数据，用户明确授权的重置除外；完整恢复前保留当前 data/archive；含密钥备份先加密。
