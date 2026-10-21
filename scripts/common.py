@@ -36,7 +36,7 @@ def write_json(path: Path, payload: Any) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=False, indent=2)
             handle.write("\n")
-        # mkstemp 固定创建 0600；数据需被 nginx（非属主）读取，故放宽到 0644
+        # Public JSON is served by the local web process; keep it host-readable.
         os.chmod(temp_name, 0o644)
         os.replace(temp_name, path)
     finally:

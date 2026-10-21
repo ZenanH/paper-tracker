@@ -5,10 +5,10 @@
   GET  /api/archive   → {"updated_at":..., "items":{...}, "cleared_items":{...}, "favorites":{...}}
   POST /api/archive   → add/remove/clear/restore_cleared/favorite/unfavorite
                          （Prefer: return=minimal 时只返回更新时间）
-  GET  /api/healthz   → 健康检查
+  GET  /api/healthz   → health check
 
-存储：ARCHIVE_FILE（默认 /archive/archive.json），原子写入，权限 0644。
-仅监听容器内网，不对外发布端口。
+存储：ARCHIVE_FILE（默认位于项目 archive/archive.json），原子写入。
+本机运行时只监听回环地址。
 """
 from __future__ import annotations
 
@@ -22,9 +22,12 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-ARCHIVE_FILE = Path(os.environ.get("ARCHIVE_FILE", "/archive/archive.json"))
-MANIFEST_FILE = Path(os.environ.get("MANIFEST_FILE", "/data/manifest.json"))
+ROOT = Path(__file__).resolve().parents[1]
+DATA_DIR = Path(os.environ.get("PAPER_TRACKER_DATA_DIR", ROOT / "data/live")).expanduser().resolve()
+ARCHIVE_FILE = Path(os.environ.get("ARCHIVE_FILE", ROOT / "archive/archive.json")).expanduser().resolve()
+MANIFEST_FILE = Path(os.environ.get("MANIFEST_FILE", DATA_DIR / "manifest.json")).expanduser().resolve()
 PORT = int(os.environ.get("PORT", "8080"))
+HOST = os.environ.get("HOST", "127.0.0.1")
 BEIJING = timezone(timedelta(hours=8))
 LOCK = threading.Lock()
 
@@ -160,7 +163,7 @@ def response_state(state: dict, minimal: bool = False) -> dict:
 
     The browser already applies archive/favorite mutations optimistically.  A
     minimal response keeps a POST from sending the entire (potentially large)
-    archive back through nginx/Tailscale while retaining the full response for
+    archive back through the local web gateway while retaining the full response for
     older clients that do not opt in.
     """
     if minimal:
@@ -344,8 +347,8 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> int:
     if not ARCHIVE_FILE.parent.exists():
         ARCHIVE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-    print(f"archive-api listening on 0.0.0.0:{PORT}, file={ARCHIVE_FILE}", flush=True)
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    print(f"archive-api listening on {HOST}:{PORT}, file={ARCHIVE_FILE}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

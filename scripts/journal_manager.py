@@ -47,7 +47,8 @@ from llm_settings import (
 )
 
 PORT = int(os.environ.get("MANAGER_PORT", "8090"))
-ARCHIVE_API = os.environ.get("ARCHIVE_API_URL", "http://archive-api:8080/api/archive")
+HOST = os.environ.get("MANAGER_HOST", "127.0.0.1")
+ARCHIVE_API = os.environ.get("ARCHIVE_API_URL", "http://127.0.0.1:8080/api/archive")
 BEIJING = ZoneInfo("Asia/Shanghai")
 MAX_BODY = 128 * 1024
 JOB_LOCK = threading.Lock()
@@ -613,9 +614,9 @@ def main() -> int:
     restore_job()
     start_startup_catchup()
     threading.Thread(target=scheduler_loop, daemon=True).start()
-    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(
-        f"journal-manager listening on 0.0.0.0:{PORT}; next run={next_run().isoformat()}",
+        f"journal-manager listening on {HOST}:{PORT}; next run={next_run().isoformat()}",
         flush=True,
     )
     try:

@@ -211,7 +211,7 @@ def stage_import(files: dict[str, str]) -> dict:
     payload = validate_files(files)
     token = secrets.token_hex(24)
     path = ARCHIVE_FILE.parent / ".gist-staging" / f"{token}.json"
-    # Keep only a single preview; staging is never served by nginx.
+    # Keep only a single preview; staging is not part of the public data route.
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     for old in path.parent.glob("*.json"):
         old.unlink()

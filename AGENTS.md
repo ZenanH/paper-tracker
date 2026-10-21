@@ -4,23 +4,22 @@
 
 ## 产品与运行边界
 
-- Docker 自托管的个人阅读工具；原生 HTML/CSS/JS，不引入前端运行依赖或独立数据库。界面只有 Journals、New papers、Favorites 三个主入口。
+- 本机 Python 服务承载原生 HTML/CSS/JS 的个人阅读工具，不引入前端运行依赖或独立数据库。界面只有 Journals、New papers、Favorites 三个主入口。
 - UI 导航、按钮、状态、错误及无障碍名称使用英文。论文中英文标题、分区和个人期刊分组保留原文；过滤规则保持用户输入语言。
-- `journal.json` 是镜像内置默认种子，初始 32 刊；首次启动复制为 `data/journal-config.json`。之后以持久配置为准，升级和重启不得恢复用户已取消关注的期刊或覆盖新增期刊。
+- `journal.json` 是代码仓库内默认种子，初始 32 刊；首次启动复制为 `data/live/journal-config.json`。之后以持久配置为准，代码更新和进程重启不得恢复用户已取消关注的期刊或覆盖新增期刊。
 - 个人分组“顶刊、一区、二区”保留；“顶刊”不等同于中科院分区或官方 Top。
 - 不增加摘要、作者长列表、营销内容、收费服务或额外论文数据库账号要求。
-- 本地运行先检查工作区、已有修改、端口和容器；不撤销无关修改。未经真实运行验证，不将“已设计/已配置”表述为“已验证成功”。
+- 本地运行先检查工作区、已有修改和端口；不撤销无关修改。未经真实运行验证，不将“已设计/已配置”表述为“已验证成功”。后续部署目标为 Vercel Free，迁移完成前不能宣称远端部署已支持。
 
 ## 文件、持久化与凭据
 
-- nginx 负责静态站点和 `/api/` 反代；`archive-api` 负责阅读状态，`journal-manager` 负责配置、互斥任务和调度。管理及归档端口不对外发布。
-- `data/` 保存日期论文、期刊元数据、运行配置、翻译/分类缓存、过滤审计和任务状态；`archive/archive.json` 保存 `items`、`cleared_items`、`favorites` 及导入后数据集标识；`secrets/` 保存受保护凭据。全部独立挂载，不进入 Git 或程序镜像。
-- 本机预览使用 `data/live/`、`archive/`、`secrets/`，Compose 为忽略文件 `.runtime/compose.yml`，地址 `http://127.0.0.1:18898/`。不得将运行数据或凭据复制进镜像构建上下文。
-- 公开 Compose 的宿主目录由 `PAPER_TRACKER_DATA_DIR`、`PAPER_TRACKER_ARCHIVE_DIR`、`PAPER_TRACKER_SECRETS_DIR` 指定。管理与归档容器使用同一宿主 UID/GID；管理容器也必须可写挂载归档目录，以便备份和恢复时共用文件锁。
+- `scripts/run_local.py` 启动静态/数据网关、`archive-api` 和 `journal-manager`；网页与 API 同源，服务默认只监听 `127.0.0.1`。静态网关只公开 `manifest.json`、`journals.json` 和日期论文文件；过滤审计、运行配置和凭据不得作为静态文件开放。
+- `data/live/` 保存日期论文、期刊元数据、运行配置、翻译/分类缓存、过滤审计和任务状态；`archive/archive.json` 保存 `items`、`cleared_items`、`favorites` 及导入后数据集标识；`secrets/` 保存受保护凭据。全部独立于代码仓库，不清理或覆盖用户运行数据。
+- 本机预览地址为 `http://127.0.0.1:18898/`。本地服务通过随机回环端口互相通信，只有网页入口端口固定；不要把内部服务绑定到外网地址。
 - 模型凭据在 `secrets/llm-config.json`；GitHub OAuth 凭据在 `secrets/github-gist.json`。目录权限 0700，文件 0600；原子写入，管理 API 永不回传密钥或令牌。日志和前端产物不得包含凭据。
 - GitHub OAuth Client ID 是公开标识，可配置于设置界面或 `PAPER_TRACKER_GITHUB_CLIENT_ID`；无需 Client Secret。不要要求用户将访问令牌发到对话中。
 - `CROSSREF_MAILTO` 仅用于请求联系信息，不主动显示于 UI，不硬编码邮箱。未配置时不附加邮箱参数。
-- 镜像由 GitHub CI 构建分发；日常采集、翻译、过滤和维护不依赖 CI。运行数据不提交代码仓库。用户明确授权的 Gist 精简备份是独立功能，见下文；包含 `secrets/` 的完整宿主备份必须先加密。
+- GitHub Actions 只运行代码编译和测试。日常采集、翻译、过滤和维护不依赖 CI。运行数据不提交代码仓库。用户明确授权的 Gist 精简备份是独立功能，见下文；包含 `secrets/` 的完整本机备份必须先加密。
 
 ## 更新、窗口与日期
 
@@ -101,7 +100,7 @@
 ## 归档、收藏与 Gist
 
 - 普通已读状态按三个月窗口清理，Favorites 永久保留，除用户取消星标或明确的独立删除操作外不移除；Unfollow 保留收藏。收藏记录含 ID、期刊、发表日期、中英文标题、URL、DOI、翻译状态与收藏时间，不依赖日期文件仍存在。
-- `archive/archive.json` 缺失可初始化，存在但损坏必须报错拒绝覆盖。收藏与 items/cleared_items 独立，跨设备共享；清缓存、重启、镜像升级不得改变状态。
+- `archive/archive.json` 缺失可初始化，存在但损坏必须报错拒绝覆盖。收藏与 items/cleared_items 独立，跨设备共享；清缓存或进程重启不得改变状态。
 - 右上角设置仅提供 **Gist 导出/导入**，不提供浏览器下载/本地文件导入。用户通过 GitHub OAuth Device Flow 授权，仅申请 `gist` scope，不索取 Client Secret。
 - 注册 OAuth App：Redirect URI 可填写站点地址；Device Flow 不使用它。关闭 wildcard，开启 Enable Device Flow。授权码、GitHub 确认链接显示于 UI，device_code 和访问令牌仅在服务端；按 GitHub interval/slow_down 规则轮询，过期/拒绝明确提示。令牌到期重新连接；Disconnect 清除本地令牌，GitHub 端撤销需在 GitHub 设置完成。
 - 每次导出新建 `public:false` 的 Secret Gist。Secret Gist 仅不公开列出，知道链接仍可读取；UI 简短提示，不宣称私密或加密。导入只接受已连接账号拥有的 Gist。
@@ -117,7 +116,7 @@
 - Python：`python3 -m unittest discover -s tests -q`；编译检查 `python3 -m compileall -q scripts server tests`；JavaScript 用 `node --check assets/app.js`、`node --check assets/liquid-glass.js`；提交前 `git diff --check`。
 - `tests/browser-journal-actions.cjs` 的 API 全部拦截，只测试整刊归档、搜索、慢请求、部分失败和布局，不写真实用户数据。Gist 浏览器回归也只用模拟 API；真实 Gist 写入必须由用户授权并主动发起。
 - 桌面/手机宽度、深浅主题、减少动画下核验吸顶、弹窗滚动、点击/Tab 焦点、标题搜索、保存进度和玻璃效果；观察运行时长任务与交互，不能仅靠截图宣称流畅。
-- 变更后更新 index.html 中静态资源内容 hash；构建并替换本机 Compose 容器，挂载目录不变。发布镜像/推送代码须在用户授权范围内。
+- 变更后更新 index.html 中静态资源内容 hash。不得新增容器镜像或编排配置。Vercel Free 迁移单独实施和验证；发布或推送代码须在用户授权范围内。
 - 手动完整更新使用 UI，或 `POST /api/admin/run`，JSON `{"mode":"daily"}`；显式回填可用 mode=backfill、可选非空有效 journal_ids。指标更新 `POST /api/admin/metrics/update`。维护脚本为 collect.py、translate.py、sync_cas.py、update_metrics.py、validate_data.py。
 - 需要维护脚本写入运行数据时先保证常驻任务空闲，避免绕开互斥。真实运行检查报告时间、刊数及失败源，区分手动/启动补跑成功与实际定时触发成功；不将模拟 GitHub/模型测试表述为用户已授权或真实导出成功。
-- 本机真实数据与验收快照属于 `.runtime/`，不向代码仓库提交，也不写入说明中的敏感凭据。完整恢复前保留当前 data/archive；含密钥备份先加密。
+- 本机真实数据与验收快照属于 `.runtime/` 及 `data/`、`archive/`、`secrets/`，不向代码仓库提交，也不写入说明中的敏感凭据。清理代码时保留这些用户数据；完整恢复前保留当前 data/archive；含密钥备份先加密。

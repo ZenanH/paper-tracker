@@ -1,0 +1,126 @@
+import json
+import signal
+import sys
+import subprocess
+import tempfile
+import threading
+import time
+import unittest
+from datetime import datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from unittest.mock import patch
+from urllib.request import urlopen
+from zoneinfo import ZoneInfo
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+
+import run_local
+
+
+class LocalServerTests(unittest.TestCase):
+    def test_static_allowlist_serves_only_public_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "manifest.json").write_text("{}", encoding="utf-8")
+            (root / "journals.json").write_text("{}", encoding="utf-8")
+            (root / "days").mkdir()
+            (root / "days" / "2026-10-21.json").write_text("{}", encoding="utf-8")
+            (root / "excluded-papers.json").write_text("secret", encoding="utf-8")
+            self.assertEqual(run_local.static_target("/data/manifest.json", root).read_text(), "{}")
+            self.assertEqual(run_local.static_target("/data/journals.json", root).read_text(), "{}")
+            self.assertEqual(run_local.static_target("/data/days/2026-10-21.json", root).read_text(), "{}")
+            self.assertIsNone(run_local.static_target("/data/excluded-papers.json", root))
+            self.assertIsNone(run_local.static_target("/data/days/../../secrets.json", root))
+
+    def test_api_routes_choose_manager_before_archive(self):
+        self.assertEqual(run_local.api_target("/api/admin/healthz", 18080, 18090), "http://127.0.0.1:18090")
+        self.assertEqual(run_local.api_target("/api/archive", 18080, 18090), "http://127.0.0.1:18080")
+        self.assertIsNone(run_local.api_target("/assets/app.js", 18080, 18090))
+
+    def test_gateway_proxies_management_requests_same_origin(self):
+        class BackendHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = json.dumps({"path": self.path, "origin": self.headers.get("Origin")}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args):
+                pass
+
+        backend = ThreadingHTTPServer(("127.0.0.1", 0), BackendHandler)
+        frontend = ThreadingHTTPServer(("127.0.0.1", 0), run_local.LocalHandler)
+        frontend.RequestHandlerClass.manager_port = backend.server_address[1]
+        frontend.RequestHandlerClass.archive_port = backend.server_address[1]
+        threads = [threading.Thread(target=server.serve_forever, daemon=True) for server in (backend, frontend)]
+        for thread in threads:
+            thread.start()
+        try:
+            with urlopen(f"http://127.0.0.1:{frontend.server_address[1]}/api/admin/healthz?probe=1") as response:
+                payload = json.load(response)
+            self.assertEqual(payload["path"], "/api/admin/healthz?probe=1")
+            self.assertEqual(payload["origin"], f"http://127.0.0.1:{backend.server_address[1]}")
+        finally:
+            for server in (frontend, backend):
+                server.shutdown()
+                server.server_close()
+            for thread in threads:
+                thread.join(timeout=2)
+
+    def test_local_runner_starts_api_services_without_touching_project_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data_dir, archive_dir, secrets_dir = (root / "data", root / "archive", root / "secrets")
+            data_dir.mkdir()
+            archive_dir.mkdir()
+            today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+            stamp = datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds")
+            (data_dir / "journal-config.json").write_text(json.dumps({"categories": {}, "config_updated_at": stamp}))
+            (data_dir / "journals.json").write_text(json.dumps({"journals": []}))
+            (data_dir / "manifest.json").write_text(json.dumps({
+                "collection_checked_at": stamp,
+                "retention": {"start": today.replace(day=1).isoformat(), "end": today.isoformat()},
+                "available_dates": [],
+            }))
+            process = subprocess.Popen([
+                sys.executable, str(Path(run_local.__file__)),
+                "--host", "127.0.0.1", "--port", "0",
+                "--data-dir", str(data_dir), "--archive-dir", str(archive_dir),
+                "--secrets-dir", str(secrets_dir),
+            ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            try:
+                deadline = time.monotonic() + 12
+                url = None
+                while time.monotonic() < deadline:
+                    line = process.stdout.readline()
+                    if line.startswith("Paper Tracker: "):
+                        url = line.split(": ", 1)[1].strip()
+                        break
+                    if process.poll() is not None:
+                        self.fail(f"Local runner exited unexpectedly: {process.stdout.read()}")
+                self.assertIsNotNone(url, "Local runner did not announce its listening URL")
+                with urlopen(url) as response:
+                    self.assertIn("Paper Tracker", response.read().decode("utf-8"))
+                with urlopen(url + "data/manifest.json") as response:
+                    self.assertEqual(json.load(response)["available_dates"], [])
+                with urlopen(url + "api/archive") as response:
+                    self.assertEqual(json.load(response)["favorites"], {})
+                with urlopen(url + "api/admin/healthz") as response:
+                    self.assertEqual(json.load(response)["status"], "ok")
+            finally:
+                if process.poll() is None:
+                    process.send_signal(signal.SIGINT)
+                    try:
+                        process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        process.terminate()
+                        process.wait(timeout=5)
+                if process.stdout:
+                    process.stdout.close()
+
+
+if __name__ == "__main__":
+    unittest.main()
