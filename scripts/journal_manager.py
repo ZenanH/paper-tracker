@@ -338,6 +338,8 @@ def journal_payload() -> dict[str, Any]:
         if token and progress.get("token") == token:
             fields = ("completed", "total", "failed", "current_journal") + (("unconfirmed",) if scope == "metrics" else ())
             job[f"{scope}_progress"] = {key: progress.get(key) for key in fields}
+            if scope == "collection" and isinstance(progress.get("detail"), dict):
+                job[f"{scope}_progress"]["detail"] = progress["detail"]
     return {
         "journals": journals,
         "filter_journal_ids": [

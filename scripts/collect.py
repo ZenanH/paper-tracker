@@ -31,6 +31,7 @@ from common import (
     title_cache_key,
     translation_engine,
     write_json,
+    update_collection_detail,
 )
 from excluded_papers import load_excluded, save_excluded_records
 from llm_settings import configured_llm_model
@@ -78,7 +79,9 @@ class CrossrefClient:
     def works(self, issn: str, filters: list[str]) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         cursor = "*"
+        page = 0
         while cursor:
+            started = time.monotonic()
             message = self.get(
                 f"/journals/{urllib.parse.quote(issn)}/works",
                 {
@@ -93,6 +96,10 @@ class CrossrefClient:
             )
             batch = message.get("items", [])
             items.extend(batch)
+            page += 1
+            update_collection_detail(phase="fetch", page=page, records_received=len(items))
+            print(f"Crossref {issn}: page {page}, {len(batch)} records, "
+                  f"{len(items)} received, {time.monotonic() - started:.1f}s", flush=True)
             next_cursor = message.get("next-cursor")
             # Crossref's documented end condition avoids an extra empty-page
             # request for every short result set.
@@ -267,7 +274,7 @@ def prune_translation_cache() -> int:
 
 
 def query_filters(journal: dict[str, Any], mode: str, target: date) -> list[list[str]]:
-    # Recheck the complete publication window on every 12-hour run. The index
+    # Recheck the complete publication window on every daily run. The index
     # query also catches newly deposited works with missing publication dates.
     cutoff = retention_start(target)
     indexed_from = cutoff
@@ -386,10 +393,19 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
             "skipped_unconfigured": 0,
         }
         if filter_stats["enabled"]:
+            # Index updates include historical works. Only new research titles
+            # eligible for the visible window need a paid model decision.
+            # Keep existing records in candidates so date corrections still
+            # remove their old placement, even when corrected out of window.
             new_candidates = [
-                article for article in candidates if article_key(article) not in existing
+                article for article in candidates
+                if article_key(article) not in existing
+                and article["content_type"] == "article"
+                and retention_start(target).isoformat() <= article["published_date"] <= target.isoformat()
             ]
             filter_stats["new_candidates"] = len(new_candidates)
+            print(f"{journal['name']}: {len(candidates)} records received; "
+                  f"{len(new_candidates)} new in-window research titles for filtering", flush=True)
             retained_new, excluded_new, classification_stats = title_filter.classify_articles(
                 new_candidates, journal["id"]
             )

@@ -435,7 +435,10 @@ function renderUpdate() {
   const displayedFailed = paperUpdate ? currentFailed : failed;
   const task = ({metrics: 'IF update', add: 'Journal setup', delete: 'Unfollow', 'restore-filtered': 'Paper restore'})[job?.kind] || 'Paper update';
   const paperStage = ['manual', 'daily', 'daily-catchup', 'backfill'].includes(job?.kind) && ({collect: 'Collecting and filtering papers…', translate: 'Translating titles…', metrics: 'Updating IF…', validate: 'Checking papers…'})[job?.stage];
-  const active = paperStage || ({metrics: 'Updating IF…', add: 'Adding journal…', delete: 'Unfollowing journal…', 'restore-filtered': 'Restoring papers…'})[job?.kind] || 'Updating papers…';
+  const detail = job?.stage === 'collect' ? progress?.detail : null;
+  const collectionStage = detail?.phase === 'fetch' ? `Fetching records · page ${Number(detail.page)} · ${countFormatter.format(Number(detail.records_received))} received` :
+    detail?.phase === 'filter' ? `Filtering titles · ${Number(detail.completed)}/${Number(detail.total)} checked${detail.failed_open ? ` · ${Number(detail.failed_open)} kept after API failure` : ''}` : '';
+  const active = collectionStage || paperStage || ({metrics: 'Updating IF…', add: 'Adding journal…', delete: 'Unfollowing journal…', 'restore-filtered': 'Restoring papers…'})[job?.kind] || 'Updating papers…';
   const jobMessage = running ? active : job?.status === 'failed' ? `${task} failed` : job?.status === 'interrupted' ? `${task} interrupted` : state.adminLoaded && !state.admin ? 'Management offline' : '';
   const jobMarkup = jobMessage ? `<span class="job-status${running ? '' : ' failure'}">${running ? '<span class="saving-spinner" aria-hidden="true"></span>' : ''}${escape(jobMessage)}</span>` : '';
   $('update-status').title = `Collection: ${m.default_date} · Updated: ${time(m.updated_at)}`;

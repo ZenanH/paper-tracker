@@ -330,6 +330,11 @@ async function stub(page, model, {failedDate = false} = {}) {
     assert.match(await refreshPage.locator('#update-status').innerText(), /0\/2 journals checked/);
     refreshModel.job.collection_progress = {completed: 1, total: 2, failed: 0};
     await refreshPage.waitForFunction(() => document.querySelector('#update-status').textContent.includes('1/2 journals checked'));
+    refreshModel.job.collection_progress.detail = {phase: 'fetch', page: 3, records_received: 1500};
+    await refreshPage.waitForFunction(() => document.querySelector('#update-status').textContent.includes('Fetching records · page 3 · 1,500 received'));
+    refreshModel.job.collection_progress.detail = {phase: 'filter', completed: 64, total: 128, failed_open: 0};
+    await refreshPage.waitForFunction(() => document.querySelector('#update-status').textContent.includes('Filtering titles · 64/128 checked'));
+    assert.match(await refreshPage.locator('#update-status').innerText(), /1\/2 journals checked/);
     refreshModel.job.collection_progress = {completed: 2, total: 2, failed: 1};
     await refreshPage.waitForFunction(() => document.querySelector('#update-status').textContent.includes('2/2 journals checked') && document.querySelector('#update-status').textContent.includes('1 failed'));
     assert(await refresh.isDisabled());

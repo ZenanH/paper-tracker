@@ -15,6 +15,7 @@ from common import (
     title_cache_key,
     translation_engine,
     write_json,
+    update_collection_detail,
 )
 from translate import (
     LLMConfig,
@@ -276,8 +277,15 @@ class TitleFilter:
                     for key in unresolved:
                         decisions.setdefault(key, {"category": "keep", "confidence": 0.0})
                 else:
+                    failed_titles = 0
+                    update_collection_detail(phase="filter", completed=0, total=len(keys), failed_open=0)
                     for offset in range(0, len(keys), BATCH_SIZE):
                         batch_keys = keys[offset : offset + BATCH_SIZE]
+                        started = time.monotonic()
+                        batch_number = offset // BATCH_SIZE + 1
+                        batch_total = (len(keys) + BATCH_SIZE - 1) // BATCH_SIZE
+                        print(f"Title filter {journal_id}: batch {batch_number}/{batch_total}, "
+                              f"{len(batch_keys)} titles, requesting model", flush=True)
                         try:
                             titles = [unresolved[key] for key in batch_keys]
                             results = (
@@ -285,6 +293,9 @@ class TitleFilter:
                                 if self.prompt else classify_llm_batch(llm_config, titles)
                             )
                         except TranslationError as exc:
+                            failed_titles += len(batch_keys)
+                            update_collection_detail(phase="filter", completed=offset + len(batch_keys),
+                                                     total=len(keys), failed_open=failed_titles)
                             stats["failed_open"] += len(batch_keys)
                             print(
                                 "WARN title filtering batch skipped; "
@@ -293,6 +304,10 @@ class TitleFilter:
                             for key in batch_keys:
                                 decisions[key] = {"category": "keep", "confidence": 0.0}
                             continue
+                        print(f"Title filter {journal_id}: batch {batch_number}/{batch_total} "
+                              f"completed in {time.monotonic() - started:.1f}s", flush=True)
+                        update_collection_detail(phase="filter", completed=offset + len(batch_keys),
+                                                 total=len(keys), failed_open=failed_titles)
                         for key, result in zip(batch_keys, results):
                             decisions[key] = result
                             entries[key] = {

@@ -524,6 +524,66 @@ class PipelineTests(unittest.TestCase):
             record = next(iter(excluded["entries"].values()))
             self.assertEqual(record["doi"], "10.1000/medical")
 
+    def test_filter_skips_out_of_window_and_nonresearch_index_results(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.prepare_collection_data(root)
+            (root / "filter-config.json").write_text(json.dumps({"journal_ids": ["example"]}))
+            items = [
+                {"DOI": f"10.1000/{key}", "title": [title],
+                 "published-online": {"date-parts": [parts]}, "type": "journal-article"}
+                for key, title, parts in [
+                    ("old", "Old indexed clinical study", [2020, 1, 1]),
+                    ("future", "Future clinical study", [2027, 1, 1]),
+                    ("editorial", "Editorial: clinical research", [2026, 9, 18]),
+                    ("current", "Current engineering study", [2026, 9, 18]),
+                    ("undated", "Undated engineering study", [2026, 9]),
+                ]
+            ]
+            seen = []
+
+            def classify(config, titles):
+                seen.extend(titles)
+                return [{"category": "keep", "confidence": 1.0} for _ in titles]
+
+            config = title_filter.LLMConfig("https://example.test/v1", "secret", "luna")
+            with patch.object(title_filter, "llm_is_configured", return_value=True), \
+                 patch.object(title_filter.TitleFilter, "_load_llm_config", return_value=config), \
+                 patch.object(title_filter, "classify_llm_batch", side_effect=classify):
+                self.run_collection(root, items)
+            self.assertEqual(seen, ["Current engineering study", "Undated engineering study"])
+            saved = [article for path in (root / "days").glob("*.json")
+                     for article in json.loads(path.read_text())["articles"]]
+            self.assertEqual({a["id"] for a in saved}, {"10.1000/current", "10.1000/undated"})
+
+    def test_filtered_journal_still_removes_a_corrected_out_of_window_record(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            days = self.prepare_collection_data(root)
+            (root / "filter-config.json").write_text(json.dumps({"journal_ids": ["example"]}))
+            previous = self.article("2026-09-17")
+            (days / "2026-09-17.json").write_text(json.dumps({"articles": [previous]}))
+            corrected = {"DOI": previous["id"], "title": [previous["title_en"]],
+                         "published-online": {"date-parts": [[2020, 1, 1]]}, "type": "journal-article"}
+            with patch.object(title_filter, "classify_llm_batch") as classify:
+                self.run_collection(root, [corrected])
+            classify.assert_not_called()
+            self.assertEqual(json.loads((days / "2026-09-17.json").read_text())["articles"], [])
+
+    def test_collection_detail_requires_current_task_token(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "progress.json"
+            path.write_text(json.dumps({"token": "old", "completed": 1}))
+            with patch.dict(os.environ, {"PAPER_TRACKER_COLLECTION_PROGRESS": str(path),
+                                         "PAPER_TRACKER_COLLECTION_TOKEN": "new"}):
+                collect.update_collection_detail(phase="filter", completed=64, total=128)
+                self.assertNotIn("detail", json.loads(path.read_text()))
+                path.write_text(json.dumps({"token": "new", "completed": 1}))
+                collect.update_collection_detail(phase="filter", completed=64, total=128)
+                saved = json.loads(path.read_text())
+                self.assertEqual(saved["completed"], 1)
+                self.assertEqual(saved["detail"], {"phase": "filter", "completed": 64, "total": 128})
+
     def test_unselected_journal_bypasses_title_classifier(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

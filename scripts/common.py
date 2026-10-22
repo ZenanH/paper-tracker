@@ -22,6 +22,19 @@ TITLE_KEY_NAMESPACE = "facebook/nllb-200-distilled-600M"
 TITLE_FILTER_RULE_VERSION = "2026-09-19.1"
 
 
+def update_collection_detail(**detail: Any) -> None:
+    filename = os.environ.get("PAPER_TRACKER_COLLECTION_PROGRESS")
+    token = os.environ.get("PAPER_TRACKER_COLLECTION_TOKEN")
+    if not filename or not token:
+        return
+    path = Path(filename)
+    progress = read_json(path, {})
+    if progress.get("token") != token:
+        return
+    progress["detail"] = detail
+    write_json(path, progress)
+
+
 def read_json(path: Path, default: Any = None) -> Any:
     if not path.exists():
         return default
