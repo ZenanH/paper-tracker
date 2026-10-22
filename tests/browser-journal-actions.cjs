@@ -303,6 +303,12 @@ async function stub(page, model, {failedDate = false} = {}) {
     assert.equal(await refresh.getAttribute('aria-busy'), 'true');
     assert(await refreshPage.locator('#refresh-spinner').isVisible());
     assert.match(await refreshPage.locator('#update-status').innerText(), /Collecting and filtering papers/);
+    assert.match(await refreshPage.locator('#update-status').innerText(), /0\/2 journals checked/);
+    refreshModel.job.collection_progress = {completed: 1, total: 2, failed: 0};
+    await refreshPage.waitForFunction(() => document.querySelector('#update-status').textContent.includes('1/2 journals checked'));
+    refreshModel.job.collection_progress = {completed: 2, total: 2, failed: 1};
+    await refreshPage.waitForFunction(() => document.querySelector('#update-status').textContent.includes('2/2 journals checked') && document.querySelector('#update-status').textContent.includes('1 failed'));
+    assert(await refresh.isDisabled());
     refreshModel.job.stage = 'translate';
     await refreshPage.waitForFunction(() => document.querySelector('#update-status').textContent.includes('Translating titles'));
     for (const theme of ['light', 'dark']) for (const width of [320, 390, 768, 1440]) {

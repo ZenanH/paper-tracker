@@ -311,6 +311,16 @@ def gather_for_journal(
     raise RuntimeError("; ".join(errors))
 
 
+def report_progress(completed: int, total: int, failed: int, current_journal: str | None) -> None:
+    path = os.environ.get("PAPER_TRACKER_COLLECTION_PROGRESS")
+    if path:
+        write_json(Path(path), {
+            "token": os.environ.get("PAPER_TRACKER_COLLECTION_TOKEN"),
+            "completed": completed, "total": total, "failed": failed,
+            "current_journal": current_journal,
+        })
+
+
 def collect(mode: str, target: date, journal_id: str | None = None) -> int:
     journal_data = read_json(DATA_DIR / "journals.json")
     if not journal_data:
@@ -319,6 +329,8 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
     journals = [journal for journal in all_journals if not journal_id or journal["id"] == journal_id]
     if journal_id and not journals:
         raise SystemExit(f"Unknown journal id: {journal_id}")
+    failed = 0
+    report_progress(0, len(journals), failed, None)
     migrate_legacy_records(now_beijing().date())
     existing, locations = load_existing()
     statuses = read_json(DATA_DIR / "collection-status.json", {})
@@ -332,7 +344,8 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
     excluded_records: list[dict[str, Any]] = []
     title_filter = TitleFilter(DATA_DIR, target)
 
-    for journal in journals:
+    for index, journal in enumerate(journals):
+        report_progress(index, len(journals), failed, journal["name"])
         try:
             items, used_issn = gather_for_journal(client, journal, mode, target)
             statuses[journal["id"]] = {
@@ -351,6 +364,8 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
                 "error": str(exc),
             }
             print(f"WARN {journal['name']}: {exc}")
+            failed += 1
+            report_progress(index + 1, len(journals), failed, None)
             continue
 
         candidates = []
@@ -428,6 +443,8 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
                 continue
             changed_days.setdefault(article["published_date"], {})[key] = article
             locations[key] = {article["published_date"]}
+
+        report_progress(index + 1, len(journals), failed, None)
 
     # Clean against the complete retained ledger, including exclusions from
     # older runs and exclusions discovered during this collection.

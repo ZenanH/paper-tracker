@@ -22,6 +22,33 @@ JOURNAL = {"id": "example", "url": "https://example.com"}
 
 
 class PipelineTests(unittest.TestCase):
+    def test_progress_counts_journals_in_order_and_includes_failures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.prepare_collection_data(root)
+            journals = [{"id": key, "name": key, "issns": ["1234-5678"]} for key in ("first", "second", "third")]
+            (root / "journals.json").write_text(json.dumps({"journals": journals}))
+            progress_path = root / "collection-progress.json"
+            events = []
+            real_report = collect.report_progress
+
+            def record(*args):
+                real_report(*args)
+                events.append(json.loads(progress_path.read_text()))
+
+            def gather(client, journal, mode, target):
+                self.assertEqual(events[-1]["current_journal"], journal["name"])
+                self.assertEqual(events[-1]["completed"], journals.index(journal))
+                if journal["id"] == "second":
+                    raise RuntimeError("Offline")
+                return [], "1234-5678"
+
+            with patch.dict(os.environ, {"PAPER_TRACKER_COLLECTION_PROGRESS": str(progress_path), "PAPER_TRACKER_COLLECTION_TOKEN": "this-run"}), patch.object(collect, "DATA_DIR", root), patch.object(collect, "DAYS_DIR", root / "days"), patch.object(collect, "iter_day_files", side_effect=lambda: sorted((root / "days").glob("????-??-??.json"))), patch.object(collect, "gather_for_journal", side_effect=gather), patch.object(collect, "report_progress", side_effect=record):
+                collect.collect("daily", date(2026, 9, 18))
+            self.assertEqual(events[0]["completed"], 0)
+            self.assertEqual([event["completed"] for event in events if event["current_journal"] is None], [0, 1, 2, 3])
+            self.assertEqual(events[-1], {"token": "this-run", "completed": 3, "total": 3, "failed": 1, "current_journal": None})
+
     def test_crossref_pagination_stops_on_short_page_without_truncating_full_page(self):
         client = CrossrefClient(delay=0)
         pages = [{"items": [{"DOI": str(i)} for i in range(500)], "next-cursor": "page-two"},

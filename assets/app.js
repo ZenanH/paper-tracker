@@ -392,19 +392,25 @@ function renderUpdate() {
   const today = `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
   const now = Date.now();
   const one = new Date(`${today}T01:00:00+08:00`).getTime();
-  const thirteen = one + 12 * 60 * 60 * 1000;
-  const expected = now < one ? one - 12 * 60 * 60 * 1000 : now < thirteen ? one : thirteen;
+  const expected = now < one ? one - 24 * 60 * 60 * 1000 : one;
   const checked = Date.parse(m.collection_checked_at || m.updated_at || '');
   const stale = !Number.isFinite(checked) || checked < expected;
   const job = state.admin?.job;
   const running = job?.status === 'running';
+  const paperUpdate = running && ['manual', 'daily', 'daily-catchup', 'backfill'].includes(job.kind);
+  const progress = paperUpdate ? job.collection_progress : null;
+  const completed = Number(progress?.completed || 0);
+  const total = Number(progress?.total ?? state.journals.length);
+  const currentFailed = Number(progress?.failed || 0);
+  const journalSummary = paperUpdate ? `${completed}/${total} journals checked` : `${ok}/${ok + failed} journals`;
+  const displayedFailed = paperUpdate ? currentFailed : failed;
   const task = ({metrics: 'IF update', add: 'Journal setup', delete: 'Unfollow', 'restore-filtered': 'Paper restore'})[job?.kind] || 'Paper update';
   const paperStage = ['manual', 'daily', 'daily-catchup', 'backfill'].includes(job?.kind) && ({collect: 'Collecting and filtering papers…', translate: 'Translating titles…', metrics: 'Updating IF…', validate: 'Checking papers…'})[job?.stage];
   const active = paperStage || ({metrics: 'Updating IF…', add: 'Adding journal…', delete: 'Unfollowing journal…', 'restore-filtered': 'Restoring papers…'})[job?.kind] || 'Updating papers…';
   const jobMessage = running ? active : job?.status === 'failed' ? `${task} failed` : job?.status === 'interrupted' ? `${task} interrupted` : state.adminLoaded && !state.admin ? 'Management offline' : '';
   const jobMarkup = jobMessage ? `<span class="job-status${running ? '' : ' failure'}">${running ? '<span class="saving-spinner" aria-hidden="true"></span>' : ''}${escape(jobMessage)}</span>` : '';
   $('update-status').title = `Collection: ${m.default_date} · Updated: ${time(m.updated_at)}`;
-  $('update-status').innerHTML = `<span class="status-dot${failed||stale?' is-warning':''}" aria-hidden="true"></span><time datetime="${escape(m.updated_at || '')}">Updated ${escape(compactTime(m.updated_at))}</time><span>${ok}/${ok+failed} journals</span>${ok+failed===0?'<span>Not collected</span>':''}${stale&&!jobMessage?'<span class="failure">Delayed</span>':''}${failed?`<span class="failure">${failed} failed</span>`:''}${jobMarkup}`;
+  $('update-status').innerHTML = `<span class="status-dot${displayedFailed||stale?' is-warning':''}" aria-hidden="true"></span><time datetime="${escape(m.updated_at || '')}">Updated ${escape(compactTime(m.updated_at))}</time><span>${journalSummary}</span>${!paperUpdate&&ok+failed===0?'<span>Not collected</span>':''}${stale&&!jobMessage?'<span class="failure">Delayed</span>':''}${displayedFailed?`<span class="failure">${displayedFailed} failed</span>`:''}${jobMarkup}`;
 }
 async function loadMetadata() {
   const [manifest, journalData] = await Promise.all([request('data/manifest.json'), request('data/journals.json')]);

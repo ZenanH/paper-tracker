@@ -81,9 +81,12 @@ def main() -> None:
                     request(base, "/api/admin/run", {"mode": "daily"})
                     deadline = time.monotonic() + 20
                     while time.monotonic() < deadline:
-                        status = request(base, "/api/admin/status")["job"]["status"]
+                        job = request(base, "/api/admin/status")["job"]
+                        status = job["status"]
                         if status != "running":
                             assert status == "success", status
+                            progress = job["collection_progress"]
+                            assert (progress["completed"], progress["total"], progress["failed"]) == (0, 0, 0), progress
                             break
                         time.sleep(0.2)
                     else:
@@ -101,7 +104,7 @@ def main() -> None:
                 assert config.parent.stat().st_mode & 0o777 == 0o700
                 assert "offline-smoke-key" not in json.dumps(request(base, "/api/admin/journals"))
                 for path in ("/data/secrets/llm-config.json", "/data/archive/archive.json",
-                             "/data/task-status.json", "/data/excluded-papers.json", "/secrets/llm-config.json"):
+                             "/data/task-status.json", "/data/collection-progress.json", "/data/excluded-papers.json", "/secrets/llm-config.json"):
                     try:
                         request(base, path)
                     except HTTPError as exc:

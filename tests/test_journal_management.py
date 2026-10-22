@@ -15,6 +15,33 @@ import sync_cas
 
 
 class JournalManagementTests(unittest.TestCase):
+    def test_collection_subprocess_can_publish_progress_before_it_finishes(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(journal_manager, "DATA_DIR", Path(directory)), patch.object(journal_manager, "filter_journal_ids", return_value=[]), patch.object(journal_manager, "public_llm_settings", return_value={}):
+            journal_manager.JOB.update(status="running", kind="manual", stage="collect")
+
+            def run(arguments, **kwargs):
+                env = kwargs["env"]
+                path = Path(env["PAPER_TRACKER_COLLECTION_PROGRESS"])
+                path.write_text(json.dumps({"token": env["PAPER_TRACKER_COLLECTION_TOKEN"], "completed": 2, "total": 32, "failed": 0}))
+                job = journal_manager.journal_payload()["job"]
+                self.assertEqual(job["status"], "running")
+                self.assertEqual(job["collection_progress"]["completed"], 2)
+                from subprocess import CompletedProcess
+                return CompletedProcess(arguments, 0, stdout="Collection complete")
+
+            with patch.object(journal_manager.subprocess, "run", side_effect=run):
+                journal_manager.run_command(["python3", "scripts/collect.py", "--mode", "daily"])
+
+    def test_collection_progress_is_visible_only_for_its_own_task(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(journal_manager, "DATA_DIR", Path(directory)), patch.object(journal_manager, "filter_journal_ids", return_value=[]), patch.object(journal_manager, "public_llm_settings", return_value={}):
+            path = Path(directory) / "collection-progress.json"
+            path.write_text(json.dumps({"token": "old", "completed": 32, "total": 32, "failed": 0}))
+            journal_manager.JOB.update(status="running", collection_token="new")
+            self.assertNotIn("collection_progress", journal_manager.journal_payload()["job"])
+            path.write_text(json.dumps({"token": "new", "completed": 2, "total": 32, "failed": 1, "current_journal": "Next journal"}))
+            progress = journal_manager.journal_payload()["job"]["collection_progress"]
+            self.assertEqual(progress, {"completed": 2, "total": 32, "failed": 1, "current_journal": "Next journal"})
+
     def test_clean_version_initializes_32_journals_and_empty_papers(self):
         with tempfile.TemporaryDirectory() as directory:
             data_dir = Path(directory) / "live"
