@@ -265,9 +265,12 @@ async function stub(page, model, {failedDate = false} = {}) {
     for (const view of ['journals', 'favorites']) {
       await refreshPage.locator(`[data-view="${view}"]`).click();
       assert(await refresh.isHidden());
+      assert(await refreshPage.locator('#update-status').isHidden());
+      assert.equal(await refreshPage.locator('#paper-update-bar').evaluate(element => element.getBoundingClientRect().height), 0);
     }
     await refreshPage.locator('[data-view="papers"]').click();
     assert(await refresh.isVisible());
+    assert(await refreshPage.locator('#update-status').isVisible());
     await refreshPage.waitForFunction(() => !document.querySelector('#run-now').disabled);
     await refresh.focus(); await refresh.press('Enter');
     await waitUntil(() => Boolean(refreshModel.releaseStart));
@@ -290,12 +293,15 @@ async function stub(page, model, {failedDate = false} = {}) {
     }
     await refreshPage.locator('[data-view="favorites"]').click();
     assert(await refresh.isHidden());
-    assert.match(await refreshPage.locator('#update-status').innerText(), /Translating titles/);
+    assert(await refreshPage.locator('#update-status').isHidden());
     assert.equal(await refreshPage.locator('.article-item').count(), 1);
     await refreshPage.locator('[data-view="journals"]').click();
     assert(await refresh.isHidden());
+    assert(await refreshPage.locator('#update-status').isHidden());
     await refreshPage.locator('[data-view="papers"]').click();
     assert(await refresh.isVisible());
+    assert(await refreshPage.locator('#update-status').isVisible());
+    assert.match(await refreshPage.locator('#update-status').innerText(), /Translating titles/);
     const readsBefore = refreshModel.dateReads;
     refreshModel.newPaper = {id: 'alpha:2:-fresh', journal_id: 'alpha', published_date: dates[2],
       title_en: 'Fresh mechanics result', title_zh: '刚采集的新论文', translation_status: 'translated', url: 'https://example.com/fresh'};
