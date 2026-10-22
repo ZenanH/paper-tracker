@@ -366,6 +366,7 @@ function switchView(view) {
   });
   $('journals-view').hidden = state.view !== 'journals';
   $('reading-view').hidden = state.view === 'journals';
+  $('run-now').hidden = state.view !== 'papers';
   $('page-title').textContent = {journals: 'Journals', papers: 'New papers', favorites: 'Favorites'}[state.view];
   renderJournals();
   renderReading();

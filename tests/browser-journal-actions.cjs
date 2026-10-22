@@ -262,6 +262,12 @@ async function stub(page, model, {failedDate = false} = {}) {
     await refreshPage.goto(baseURL); await ready(refreshPage);
     const refresh = refreshPage.getByRole('button', {name: 'Refresh papers', exact: true});
     await refresh.waitFor();
+    for (const view of ['journals', 'favorites']) {
+      await refreshPage.locator(`[data-view="${view}"]`).click();
+      assert(await refresh.isHidden());
+    }
+    await refreshPage.locator('[data-view="papers"]').click();
+    assert(await refresh.isVisible());
     await refreshPage.waitForFunction(() => !document.querySelector('#run-now').disabled);
     await refresh.focus(); await refresh.press('Enter');
     await waitUntil(() => Boolean(refreshModel.releaseStart));
@@ -283,8 +289,13 @@ async function stub(page, model, {failedDate = false} = {}) {
       assert(await refresh.isVisible());
     }
     await refreshPage.locator('[data-view="favorites"]').click();
+    assert(await refresh.isHidden());
+    assert.match(await refreshPage.locator('#update-status').innerText(), /Translating titles/);
     assert.equal(await refreshPage.locator('.article-item').count(), 1);
+    await refreshPage.locator('[data-view="journals"]').click();
+    assert(await refresh.isHidden());
     await refreshPage.locator('[data-view="papers"]').click();
+    assert(await refresh.isVisible());
     const readsBefore = refreshModel.dateReads;
     refreshModel.newPaper = {id: 'alpha:2:-fresh', journal_id: 'alpha', published_date: dates[2],
       title_en: 'Fresh mechanics result', title_zh: '刚采集的新论文', translation_status: 'translated', url: 'https://example.com/fresh'};
@@ -296,6 +307,8 @@ async function stub(page, model, {failedDate = false} = {}) {
     assert.equal(await refresh.locator('#refresh-label').innerText(), 'Refresh');
     assert(!(await refresh.isDisabled()));
     assert.equal(await refreshPage.getByText('刚采集的新论文', {exact: true}).count(), 1);
+    assert.equal(await refreshPage.locator('[data-select="alpha:0:0"]').count(), 0);
+    assert(refreshModel.saved.cleared_items['alpha:0:0']);
     assert.equal(Object.keys(refreshModel.saved.favorites).length, 1);
     await refresh.click();
     await waitUntil(() => refreshModel.refreshRequests.length === 2);
@@ -316,7 +329,7 @@ async function stub(page, model, {failedDate = false} = {}) {
     assert.equal(await refresh.getAttribute('aria-busy'), 'false');
     assert.equal(refreshModel.refreshRequests.length, 4);
     assert.deepEqual(refreshErrors, []);
-    console.log('Refresh: keyboard start, no duplicate request, real stages, browse while running, cache reload with new translation, failures and retry; both themes and reduced motion.');
+    console.log('Refresh: New papers only, one background update, real stages, browse while running, new translated papers, archived papers stay hidden, failures and retry; both themes and reduced motion.');
     assert.deepEqual(errors, []); console.log('Journal action browser checks passed.');
   } finally {await browser.close();}
 })().catch(error => {console.error(error); process.exitCode = 1;});
