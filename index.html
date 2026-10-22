@@ -10,6 +10,20 @@
     </title>
     <script>
       try { const t = localStorage.getItem('paper-tracker-theme') || 'system'; document.documentElement.dataset.theme = t === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : (t === 'dark' ? 'dark' : 'light'); } catch { document.documentElement.dataset.theme = 'light'; }
+      if (location.protocol === 'file:') document.addEventListener('DOMContentLoaded', () => {
+        const main = document.createElement('main');
+        main.className = 'app-shell';
+        const heading = document.createElement('h1');
+        heading.textContent = 'Open Paper Tracker through Docker';
+        const message = document.createElement('p');
+        message.textContent = 'This HTML file cannot load your followed journals or saved data. Start the Docker container and open the app address.';
+        const link = document.createElement('a');
+        link.className = 'button primary';
+        link.href = 'http://127.0.0.1:18898/?view=journals';
+        link.textContent = 'Open local Paper Tracker';
+        main.append(heading, message, link);
+        document.body.replaceChildren(main);
+      });
     </script>
     <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
     <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />

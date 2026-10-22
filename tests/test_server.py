@@ -24,6 +24,37 @@ urlopen = build_opener(ProxyHandler({})).open
 
 
 class ServerTests(unittest.TestCase):
+    def test_fresh_volume_initializes_32_journals_and_keeps_user_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            scripts = Path(__file__).resolve().parents[1] / "scripts"
+            environment = {key: value for key, value in os.environ.items()
+                           if not key.startswith("PAPER_TRACKER_")}
+            environment["PAPER_TRACKER_DATA_DIR"] = directory
+            code = (
+                "import sys; sys.path.insert(0,sys.argv[1]); "
+                "import journal_manager; journal_manager.sync_if_needed()"
+            )
+            arguments = [sys.executable, "-B", "-c", code, str(scripts)]
+            subprocess.check_output(arguments, env=environment)
+            root = Path(directory)
+            config_path = root / "journal-config.json"
+            metadata_path = root / "journals.json"
+            self.assertEqual(len(json.loads(metadata_path.read_text())["journals"]), 32)
+            self.assertEqual(json.loads((root / "manifest.json").read_text())["journal_count"], 32)
+            config = json.loads(config_path.read_text())
+            removed = config["categories"]["顶刊"].pop()["name"]
+            config_path.write_text(json.dumps(config))
+            metadata_path.unlink()
+            subprocess.check_output(arguments, env=environment)
+            names = [item["name"] for item in json.loads(metadata_path.read_text())["journals"]]
+            self.assertEqual(len(names), 31)
+            self.assertNotIn(removed, names)
+            config["categories"] = {}
+            config_path.write_text(json.dumps(config))
+            metadata_path.unlink()
+            subprocess.check_output(arguments, env=environment)
+            self.assertEqual(json.loads(metadata_path.read_text())["journals"], [])
+
     def test_listeners_do_not_require_reverse_dns(self):
         with patch("socket.getfqdn", side_effect=RuntimeError("DNS unavailable")):
             server = ThreadingHTTPServer(("127.0.0.1", 0), container_server.GatewayHandler)
