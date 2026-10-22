@@ -34,6 +34,9 @@ const state = {
   filterDirty: false,
   refreshAfterJob: false,
   refreshStarting: false,
+  metricsStarting: false,
+  metricsJob: null,
+  metricsError: '',
   filterIds: new Set(),
   prompt: '',
   match: null,
@@ -350,7 +353,35 @@ function renderReading() {
   renderCounts();
 }
 
+function renderMetrics() {
+  const job = state.admin?.job;
+  if (state.admin) state.metricsJob = job?.kind === 'metrics' || job?.stage === 'metrics' ? job : null;
+  const metricsJob = state.metricsJob;
+  const running = state.metricsStarting || metricsJob?.status === 'running';
+  $('update-metrics').setAttribute('aria-busy', String(Boolean(running)));
+  $('metrics-spinner').hidden = !running;
+  $('metrics-label').textContent = state.metricsStarting ? 'Starting…' : running ? 'Updating IF…' : 'Update IF';
+  const status = $('metrics-status');
+  status.hidden = !state.metricsStarting && !metricsJob && !state.metricsError;
+  const progress = state.metricsStarting || state.metricsError ? null : metricsJob?.metrics_progress;
+  const parts = [];
+  if (state.metricsError) parts.push(state.metricsError);
+  else if (state.metricsStarting) parts.push('Starting IF update…');
+  else if (!state.admin && running) parts.push('Connection lost. Reconnecting…');
+  else if (metricsJob?.status === 'failed') parts.push('IF update failed');
+  else if (metricsJob?.status === 'interrupted') parts.push('IF update interrupted');
+  else if (metricsJob?.status === 'success') parts.push('IF check finished');
+  if (progress || running) {
+    parts.push(`${Number(progress?.completed || 0)}/${Number(progress?.total ?? state.journals.length)} journals checked`);
+    if (progress?.failed) parts.push(`${Number(progress.failed)} failed`);
+    if (progress?.unconfirmed) parts.push(`${Number(progress.unconfirmed)} not confirmed`);
+  }
+  status.textContent = parts.join(' · ');
+  status.title = running && progress?.current_journal ? `Checking ${progress.current_journal}` : '';
+}
+
 function renderJournals() {
+  renderMetrics();
   $('metrics-version').textContent = `CAS 2025 · ${state.journalData.metrics_checked_at ? 'IF checked ' + dataDate(state.journalData.metrics_checked_at) : 'IF not checked'}`;
   $('metrics-version').title = `IF last checked: ${time(state.journalData.metrics_checked_at)}`;
   $('following-list').innerHTML = state.journals.length ? state.journals.map(j => `<article class="following-item"><div><h3>${escape(j.name)}</h3>${badges(j)}${j.impact_factor?.checked_at ? `<p class="journal-data-date">Checked ${escape(dataDate(j.impact_factor.checked_at))}</p>` : ''}</div><button class="button quiet" data-unfollow="${escape(j.id)}" ${!state.admin||state.admin.job?.status==='running'?'disabled':''}>Unfollow</button></article>`).join('') : '<div class="empty-state"><strong>No journals yet</strong></div>';
@@ -679,8 +710,8 @@ function renderAdmin() {
 
 async function loadAdmin() {
   clearTimeout(state.poll);
-  const wasRunning = state.admin?.job?.status === 'running';
-  const previousJob = state.admin?.job;
+  const wasRunning = state.admin?.job?.status === 'running' || state.metricsJob?.status === 'running';
+  const previousJob = state.admin?.job || state.metricsJob;
   try {
     state.admin = await adminRequest('/journals');
     state.adminLoaded = true;
@@ -713,6 +744,11 @@ async function startJob(path, payload = {}) {
   if (state.adminBusy || !state.admin || state.admin.job?.status === 'running') return;
   state.adminBusy = true;
   state.refreshStarting = path === '/run';
+  state.metricsStarting = path === '/metrics/update';
+  if (state.metricsStarting) {
+    state.metricsError = '';
+    state.metricsJob = null;
+  }
   renderAdmin();
   try {
     state.admin = await adminRequest(path, payload);
@@ -723,10 +759,12 @@ async function startJob(path, payload = {}) {
     state.poll = setTimeout(loadAdmin, 1500);
     return true;
   } catch (e) {
+    if (path === '/metrics/update') state.metricsError = e.message;
     notify(e.message, true);
   } finally {
     state.adminBusy = false;
     state.refreshStarting = false;
+    state.metricsStarting = false;
     renderAdmin();
   }
 }

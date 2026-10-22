@@ -27,8 +27,8 @@
     </script>
     <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
     <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="assets/styles.css?v=9055407e94" />
-    <script type="module" src="assets/app.js?v=3219361c6f">
+    <link rel="stylesheet" href="assets/styles.css?v=c0408a42eb" />
+    <script type="module" src="assets/app.js?v=48ed5c021b">
     </script>
     <script type="module" src="assets/liquid-glass.js?v=28794e8f9b"></script>
   </head>
@@ -101,16 +101,18 @@
           <div id="journal-match" role="status">
           </div>
         </div>
-        <div class="section-heading">
+        <div class="section-heading metrics-heading">
           <div>
             <h2>
               Following
             </h2>
             <p id="metrics-version" class="muted">
             </p>
+            <p id="metrics-status" class="metrics-status muted" role="status" aria-live="polite" hidden></p>
           </div>
-          <button class="button" id="update-metrics">
-            Update IF
+          <button class="button refresh-button" id="update-metrics" aria-label="Update IF" aria-busy="false">
+            <span id="metrics-spinner" class="saving-spinner" aria-hidden="true" hidden></span>
+            <span id="metrics-label">Update IF</span>
           </button>
         </div>
         <div id="following-list" class="following-list surface">

@@ -64,6 +64,7 @@ JOB_DEFAULTS: dict[str, Any] = {
     "log": [],
     "result": None,
     "collection_token": None,
+    "metrics_token": None,
 }
 JOB: dict[str, Any] = dict(JOB_DEFAULTS)
 MAINTENANCE_PATH = DATA_DIR / "maintenance-status.json"
@@ -111,13 +112,12 @@ def run_command(arguments: list[str]) -> None:
     display = " ".join(arguments)
     append_log(f"运行：{display}")
     environment = os.environ.copy()
-    if "scripts/collect.py" in arguments:
-        token = uuid.uuid4().hex
-        set_job(collection_token=token)
-        environment.update(
-            PAPER_TRACKER_COLLECTION_PROGRESS=str(DATA_DIR / "collection-progress.json"),
-            PAPER_TRACKER_COLLECTION_TOKEN=token,
-        )
+    for scope, script in (("collection", "scripts/collect.py"), ("metrics", "scripts/update_metrics.py")):
+        if script in arguments:
+            token = uuid.uuid4().hex
+            set_job(**{f"{scope}_token": token})
+            environment[f"PAPER_TRACKER_{scope.upper()}_PROGRESS"] = str(DATA_DIR / f"{scope}-progress.json")
+            environment[f"PAPER_TRACKER_{scope.upper()}_TOKEN"] = token
     completed = subprocess.run(
         arguments,
         cwd=ROOT,
@@ -293,6 +293,7 @@ def start_job(kind: str, callback: Callable[[], Any]) -> None:
             log=[],
             result=None,
             collection_token=None,
+            metrics_token=None,
         )
         save_job()
     thread = threading.Thread(target=execute_job, args=(kind, callback), daemon=True)
@@ -355,9 +356,12 @@ def journal_payload() -> dict[str, Any]:
     excluded = load_excluded(DATA_DIR).get("entries", {})
     with JOB_LOCK:
         job = dict(JOB)
-    progress = read_json(DATA_DIR / "collection-progress.json", {}) if job.get("collection_token") else {}
-    if progress.get("token") == job.get("collection_token") and job.get("collection_token"):
-        job["collection_progress"] = {key: progress.get(key) for key in ("completed", "total", "failed", "current_journal")}
+    for scope in ("collection", "metrics"):
+        token = job.get(f"{scope}_token")
+        progress = read_json(DATA_DIR / f"{scope}-progress.json", {}) if token else {}
+        if token and progress.get("token") == token:
+            fields = ("completed", "total", "failed", "current_journal") + (("unconfirmed",) if scope == "metrics" else ())
+            job[f"{scope}_progress"] = {key: progress.get(key) for key in fields}
     return {
         "journals": journals,
         "filter_journal_ids": [

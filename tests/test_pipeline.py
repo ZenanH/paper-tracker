@@ -22,6 +22,46 @@ JOURNAL = {"id": "example", "url": "https://example.com"}
 
 
 class PipelineTests(unittest.TestCase):
+    def test_metrics_progress_counts_real_checks_and_keeps_old_values_on_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            journals = [{"id": str(index), "name": f"Journal {index}", "url": "https://example.com", "impact_factor": {"value": 4.2, "year": 2024}} for index in range(4)]
+            path = root / "journals.json"
+            path.write_text(json.dumps({"journals": journals}))
+            progress_path = root / "metrics-progress.json"
+            events = []
+            responses = iter(["Journal Impact Factor: 5.1 (2025)", ConnectionResetError("Disconnected"), "No annual metric", "Journal Impact Factor: 5.8"])
+
+            def fetch(url):
+                progress = json.loads(progress_path.read_text())
+                self.assertEqual(progress["completed"], len(events))
+                self.assertEqual(progress["current_journal"], journals[len(events)]["name"])
+                events.append(progress)
+                response = next(responses)
+                if isinstance(response, Exception):
+                    raise response
+                return response
+
+            with patch.dict(os.environ, {"PAPER_TRACKER_METRICS_PROGRESS": str(progress_path), "PAPER_TRACKER_METRICS_TOKEN": "metrics-run"}), patch.object(update_metrics, "DATA_DIR", root), patch.object(update_metrics, "fetch", side_effect=fetch):
+                update_metrics.main()
+            self.assertEqual(len(events), 4)
+            self.assertEqual(json.loads(progress_path.read_text()), {"token": "metrics-run", "completed": 4, "total": 4, "failed": 1, "unconfirmed": 2, "current_journal": None})
+            saved = json.loads(path.read_text())["journals"]
+            self.assertEqual(saved[0]["impact_factor"]["value"], 5.1)
+            for journal in saved[1:]:
+                self.assertEqual((journal["impact_factor"]["value"], journal["impact_factor"]["year"]), (4.2, 2024))
+
+    def test_metrics_progress_handles_no_followed_journals(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "journals.json").write_text(json.dumps({"journals": []}))
+            progress_path = root / "metrics-progress.json"
+            with patch.dict(os.environ, {"PAPER_TRACKER_METRICS_PROGRESS": str(progress_path)}), patch.object(update_metrics, "DATA_DIR", root), patch.object(update_metrics, "fetch") as fetch:
+                update_metrics.main()
+                fetch.assert_not_called()
+            progress = json.loads(progress_path.read_text())
+            self.assertEqual((progress["completed"], progress["total"]), (0, 0))
+
     def test_progress_counts_journals_in_order_and_includes_failures(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -591,6 +591,23 @@ textarea::placeholder {
   margin-top: 4px
 }
 
+.metrics-heading {
+  align-items: flex-start;
+}
+
+.metrics-heading > div {
+  min-width: 0;
+}
+
+.metrics-heading .button[aria-busy="true"] {
+  opacity: 1;
+}
+
+.metrics-status {
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
 
 .following-item {
   display: grid;

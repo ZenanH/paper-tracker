@@ -52,6 +52,13 @@ async function stub(page, model, {failedDate = false} = {}) {
     return route.fulfill({status: 404, json: {error: 'Unknown test data'}});
   });
   await page.route('**/api/admin/**', async route => {
+    if (new URL(route.request().url()).pathname === '/api/admin/metrics/update' && route.request().method() === 'POST') {
+      model.metricsRequests = (model.metricsRequests || 0) + 1;
+      if (model.holdMetricsStart) await new Promise(resolve => {model.releaseMetricsStart = resolve;});
+      if (model.rejectMetrics) return route.fulfill({status: 503, json: {error: 'IF service unavailable'}});
+      model.job = {status: 'running', kind: 'metrics'};
+      return route.fulfill({status: 202, json: {journals, job: model.job, llm: {}, filter_journal_ids: [], filter_prompt: ''}});
+    }
     if (new URL(route.request().url()).pathname === '/api/admin/run' && route.request().method() === 'POST') {
       (model.refreshRequests ||= []).push(route.request().postDataJSON());
       if (model.holdStart) await new Promise(resolve => {model.releaseStart = resolve;});
@@ -362,6 +369,75 @@ async function stub(page, model, {failedDate = false} = {}) {
     assert.equal(refreshModel.refreshRequests.length, 4);
     assert.deepEqual(refreshErrors, []);
     console.log('Refresh: New papers only, one background update, real stages, browse while running, new translated papers, archived papers stay hidden, failures and retry; both themes and reduced motion.');
+    const metricsPage = await browser.newPage({viewport: {width: 390, height: 844}});
+    const metricsErrors = []; metricsPage.on('pageerror', error => metricsErrors.push(error.message));
+    const metricsModel = {saved: fixture(), posts: [], holdMetricsStart: true};
+    await stub(metricsPage, metricsModel);
+    await metricsPage.goto(`${baseURL}?view=journals`); await ready(metricsPage);
+    const updateIF = metricsPage.getByRole('button', {name: 'Update IF', exact: true});
+    assert(await metricsPage.locator('#metrics-status').isHidden());
+    await updateIF.click();
+    await waitUntil(() => Boolean(metricsModel.releaseMetricsStart));
+    assert.equal(await updateIF.locator('#metrics-label').innerText(), 'Starting…');
+    assert.equal(await updateIF.getAttribute('aria-busy'), 'true');
+    assert(await metricsPage.locator('#metrics-spinner').isVisible());
+    assert(await updateIF.isDisabled());
+    await updateIF.evaluate(button => button.click());
+    assert.equal(metricsModel.metricsRequests, 1);
+    metricsModel.holdMetricsStart = false; metricsModel.releaseMetricsStart();
+    await metricsPage.waitForFunction(() => document.querySelector('#metrics-label').textContent === 'Updating IF…');
+    assert.match(await metricsPage.locator('#metrics-status').innerText(), /0\/2 journals checked/);
+    assert.equal(await metricsPage.locator('#metrics-spinner').evaluate(node => getComputedStyle(node).animationName), 'saving-spin');
+    metricsModel.job.metrics_progress = {completed: 1, total: 2, failed: 0, unconfirmed: 0, current_journal: journals[1].name};
+    await metricsPage.waitForFunction(() => document.querySelector('#metrics-status').textContent.includes('1/2 journals checked'));
+    for (const theme of ['light', 'dark']) for (const width of [320, 390, 768, 1440]) {
+      await metricsPage.setViewportSize({width, height: 844});
+      await metricsPage.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+      assert.equal(await metricsPage.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      const layout = await updateIF.evaluate(button => {
+        const b = button.getBoundingClientRect(), s = document.querySelector('#metrics-status').getBoundingClientRect();
+        return {separate: s.right <= b.left, clickable: document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2)?.closest('button') === button};
+      });
+      assert(layout.separate); assert(layout.clickable);
+      if (process.env.PAPER_TRACKER_SCREENSHOTS) await metricsPage.screenshot({path: require('node:path').join(process.env.PAPER_TRACKER_SCREENSHOTS, `metrics-running-${width}-${theme}.png`)});
+    }
+    await metricsPage.emulateMedia({reducedMotion: 'reduce'});
+    assert.equal(await metricsPage.locator('#metrics-spinner').evaluate(node => getComputedStyle(node).animationName), 'none');
+    await metricsPage.emulateMedia({reducedMotion: 'no-preference'});
+    await metricsPage.locator('[data-view="favorites"]').click();
+    assert(await metricsPage.locator('#metrics-status').isHidden());
+    assert(await metricsPage.locator('#paper-update-bar').isHidden());
+    await metricsPage.locator('[data-view="journals"]').click();
+    assert.match(await metricsPage.locator('#metrics-status').innerText(), /1\/2 journals checked/);
+    await metricsPage.reload(); await ready(metricsPage);
+    await metricsPage.waitForFunction(() => document.querySelector('#metrics-status').textContent.includes('1/2 journals checked'));
+    metricsModel.adminOffline = true;
+    await metricsPage.waitForFunction(() => document.querySelector('#metrics-status').textContent.includes('Reconnecting'));
+    assert.match(await metricsPage.locator('#metrics-status').innerText(), /1\/2 journals checked/);
+    assert.equal(await updateIF.getAttribute('aria-busy'), 'true');
+    metricsModel.adminOffline = false;
+    metricsModel.job.metrics_progress = {completed: 2, total: 2, failed: 1, unconfirmed: 1};
+    await metricsPage.waitForFunction(() => document.querySelector('#metrics-status').textContent.includes('2/2 journals checked') && document.querySelector('#metrics-status').textContent.includes('1 failed'));
+    assert(await updateIF.isDisabled());
+    metricsModel.job = {...metricsModel.job, status: 'success', finished_at: '2026-10-22T10:00:00Z'};
+    await metricsPage.waitForFunction(() => document.querySelector('#metrics-status').textContent.includes('IF check finished'));
+    assert.match(await metricsPage.locator('#metrics-status').innerText(), /2\/2 journals checked · 1 failed · 1 not confirmed/);
+    assert.equal(await updateIF.getAttribute('aria-busy'), 'false');
+    assert(await metricsPage.locator('#metrics-spinner').isHidden());
+    assert(!(await updateIF.isDisabled()));
+    if (process.env.PAPER_TRACKER_SCREENSHOTS) await metricsPage.screenshot({path: require('node:path').join(process.env.PAPER_TRACKER_SCREENSHOTS, 'metrics-finished.png')});
+    await updateIF.click();
+    await waitUntil(() => metricsModel.metricsRequests === 2);
+    metricsModel.job = {status: 'failed', kind: 'metrics', metrics_progress: {completed: 1, total: 2, failed: 0, unconfirmed: 0}, finished_at: '2026-10-22T10:01:00Z'};
+    await metricsPage.waitForFunction(() => document.querySelector('#metrics-status').textContent.includes('IF update failed'));
+    assert.match(await metricsPage.locator('#metrics-status').innerText(), /1\/2 journals checked/);
+    metricsModel.rejectMetrics = true;
+    await updateIF.click();
+    await metricsPage.waitForFunction(() => document.querySelector('#metrics-status').textContent === 'IF service unavailable');
+    assert.equal(await updateIF.getAttribute('aria-busy'), 'false');
+    assert(!(await updateIF.isDisabled()));
+    assert.deepEqual(metricsErrors, []);
+    console.log('IF update: immediate spinner, real per-journal counts, failed/unconfirmed outcomes, reconnect and reload, views, themes, narrow screens and reduced motion.');
     assert.deepEqual(errors, []); console.log('Journal action browser checks passed.');
   } finally {await browser.close();}
 })().catch(error => {console.error(error); process.exitCode = 1;});

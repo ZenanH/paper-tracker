@@ -58,6 +58,7 @@
 - 运行时先核验本地源校验值；离线提取大类/小类分区、Top、ISSN/eISSN、版本与来源，不能混用 JCR quartile 或新锐分区，也不能自动换年份。
 - 页面主要展示大类分区和 Top；后台保留小类及来源审计。32 本默认刊均已在该表匹配。FGCS 对应 `Future Generation Computer Systems-The International Journal of eScience`（0167-739X/1872-7115）。
 - IF 每三个日历月检查出版社公开指标页，初次也核查；季度检查不是制造新的指标年度。只接受明确的 Journal Impact Factor/JIF，不用 CiteScore、SJR 或五年 IF 代替。
+- Journals 的 Update IF 在提交时立即显示 Starting 和旋转图标，运行时显示 Updating IF 及本轮逐刊 completed/total journals checked，失败和未确认分别计数。完成/失败时停止动效并保留结果；切换页面、刷新页面及短暂断线不丢失后台进度，减少动画偏好停用旋转但保留状态文字。进度原子保存在 `/data/metrics-progress.json`，独立任务 token 防止串用旧进度。
 - 保存数值、指标年份、可确认的报告版本、来源 URL、检查时间和状态。年份缺失、同年值有歧义或访问失败时保留旧值，不能写零或标成 verified；不能用页脚年份替代指标年份。
 - `sync_cas.py` 重建时按稳定 ID 保留原有 IF 和全局 `metrics_checked_at`；重新关注也保留原值。单刊核查不推进全局季度时间。
 - Journals 只展示已关注期刊、分区、带年份的 IF、CAS 2025 版本和核验时间，不展示 ISSN/ISBN 或 IF 来源详情。
@@ -92,7 +93,7 @@
 - `/data/archive/archive.json` 写入使用原子替换和进程间文件锁。远程或慢链路期间不得阻塞浏览；写入进行时禁止并发修改、显示保存状态，并通过 `beforeunload` 请求确认，避免关闭页面后误以为保存成功。
 - 收藏和阅读状态乐观更新，`Prefer: return=minimal`；请求期间禁重复修改，过期读取不覆盖后发操作，切换页面仍可浏览。兼容已有数据集标识，防止过期浏览器写入已替换的数据。
 - 星标固定尺寸，aria-label、aria-pressed、键盘焦点完整，切换不引起标题跳动。标题链接只允许 HTTP(S)，安全文本渲染。
-- 更新状态和任务提示仅在 New papers 顶部显示，与 Refresh 同属一行；Journals 和 Favorites 隐藏整行且不保留占位，初始加载不闪现。按 Updating papers/Updating IF/Adding journal 等说明实际任务；失败/中断明确，不在底部显示笼统 Updating。隐藏状态提示不影响后台任务继续执行。
+- 论文更新状态和全局任务提示仅在 New papers 顶部显示，与 Refresh 同属一行；Journals 和 Favorites 隐藏整行且不保留占位，初始加载不闪现。Journals 在 Update IF 旁单独显示指标进度。按 Updating papers/Updating IF/Adding journal 等说明实际任务；失败/中断明确，不在底部显示笼统 Updating。隐藏状态提示不影响后台任务继续执行。
 - 采集按关注列表顺序逐刊执行，采集/过滤结束后推进本轮 `completed/total journals checked`；单刊失败计入已处理并单独标明失败数，不使用上一轮清单伪造进度。`/data/collection-progress.json` 原子记录进度并用每次采集独立 token 隔离旧任务；管理接口读取实时进度。翻译/校验期间保留已核对计数和实际阶段，不将全刊核对完成冒充整个任务完成。
 - Refresh 仅在 New papers 页面显示，Journals 和 Favorites 隐藏，初始加载时也不得闪现。点击一次发送 `POST /api/admin/run`、`{"mode":"daily"}`，后台检查全部已关注期刊，按过滤设置处理新论文，使用用户保存的 API 翻译并校验；结束后清日期缓存并重读论文和阅读状态，已归档记录不得重新出现在 New papers。点击立即反馈，任务运行中禁止重复启动但允许浏览，切换页面不取消后台任务；显示真实阶段，成功/部分失败/任务失败分别反馈。未配置模型时继续采集并跳过模型调用，翻译失败保留英文及待翻译状态。
 - Find/Search 统一颜色、尺寸和样式。搜索框鼠标/触摸点击和输入不出现高亮外轮廓，Tab 保留可见焦点。

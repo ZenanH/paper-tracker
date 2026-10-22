@@ -91,6 +91,18 @@ def main() -> None:
                         time.sleep(0.2)
                     else:
                         raise AssertionError("Refresh did not complete")
+                    request(base, "/api/admin/metrics/update", {})
+                    deadline = time.monotonic() + 20
+                    while time.monotonic() < deadline:
+                        job = request(base, "/api/admin/status")["job"]
+                        if job["status"] != "running":
+                            assert job["status"] == "success", job
+                            progress = job["metrics_progress"]
+                            assert (progress["completed"], progress["total"], progress["failed"], progress["unconfirmed"]) == (0, 0, 0, 0), progress
+                            break
+                        time.sleep(0.2)
+                    else:
+                        raise AssertionError("IF update did not complete")
                     article = {"id": "smoke-favorite", "journal_id": "example", "date": today,
                                "title_en": "Persistent mechanics title", "url": "https://example.com/paper"}
                     request(base, "/api/archive", {"action": "favorite", "items": [article]})
@@ -104,7 +116,7 @@ def main() -> None:
                 assert config.parent.stat().st_mode & 0o777 == 0o700
                 assert "offline-smoke-key" not in json.dumps(request(base, "/api/admin/journals"))
                 for path in ("/data/secrets/llm-config.json", "/data/archive/archive.json",
-                             "/data/task-status.json", "/data/collection-progress.json", "/data/excluded-papers.json", "/secrets/llm-config.json"):
+                             "/data/task-status.json", "/data/collection-progress.json", "/data/metrics-progress.json", "/data/excluded-papers.json", "/secrets/llm-config.json"):
                     try:
                         request(base, path)
                     except HTTPError as exc:

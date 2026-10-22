@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import html
+import http.client
 import os
 import re
 import urllib.error
 import urllib.request
 import urllib.parse
 from typing import Any
+from pathlib import Path
 
 from common import DATA_DIR, iso_now, read_json, write_json
 
@@ -88,7 +90,7 @@ def update_journal(journal: dict[str, Any]) -> None:
     try:
         document = fetch(source_url)
         parsed = parse_metric(document)
-    except (urllib.error.URLError, TimeoutError, UnicodeError) as exc:
+    except (OSError, http.client.HTTPException, UnicodeError) as exc:
         metric["status"] = "check_failed"
         metric["error"] = str(exc)
         return
@@ -110,6 +112,16 @@ def update_journal(journal: dict[str, Any]) -> None:
     metric.pop("candidate_value", None)
 
 
+def report_progress(completed: int, total: int, failed: int, unconfirmed: int, current_journal: str | None) -> None:
+    path = os.environ.get("PAPER_TRACKER_METRICS_PROGRESS")
+    if path:
+        write_json(Path(path), {
+            "token": os.environ.get("PAPER_TRACKER_METRICS_TOKEN"),
+            "completed": completed, "total": total, "failed": failed,
+            "unconfirmed": unconfirmed, "current_journal": current_journal,
+        })
+
+
 def main(journal_id: str | None = None) -> int:
     path = DATA_DIR / "journals.json"
     payload = read_json(path)
@@ -118,9 +130,16 @@ def main(journal_id: str | None = None) -> int:
     journals = [journal for journal in payload["journals"] if not journal_id or journal["id"] == journal_id]
     if journal_id and not journals:
         raise SystemExit(f"Unknown journal id: {journal_id}")
-    for journal in journals:
+    failed = unconfirmed = 0
+    report_progress(0, len(journals), failed, unconfirmed, None)
+    for index, journal in enumerate(journals):
+        report_progress(index, len(journals), failed, unconfirmed, journal["name"])
         update_journal(journal)
-        print(f"{journal['name']}: {journal['impact_factor']['status']}")
+        status = journal["impact_factor"]["status"]
+        failed += status == "check_failed"
+        unconfirmed += status not in {"verified", "check_failed"}
+        report_progress(index + 1, len(journals), failed, unconfirmed, None)
+        print(f"{journal['name']}: {status}")
     if journal_id is None:
         payload["metrics_checked_at"] = iso_now()
     write_json(path, payload)

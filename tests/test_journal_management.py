@@ -15,6 +15,26 @@ import sync_cas
 
 
 class JournalManagementTests(unittest.TestCase):
+    def test_metrics_subprocess_progress_is_live_and_isolated_from_other_tasks(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(journal_manager, "DATA_DIR", Path(directory)), patch.object(journal_manager, "filter_journal_ids", return_value=[]), patch.object(journal_manager, "public_llm_settings", return_value={}):
+            path = Path(directory) / "metrics-progress.json"
+            path.write_text(json.dumps({"token": "old", "completed": 32, "total": 32}))
+            journal_manager.JOB.update(status="running", kind="metrics", metrics_token="new")
+            self.assertNotIn("metrics_progress", journal_manager.journal_payload()["job"])
+
+            def run(arguments, **kwargs):
+                env = kwargs["env"]
+                self.assertEqual(Path(env["PAPER_TRACKER_METRICS_PROGRESS"]), path)
+                path.write_text(json.dumps({"token": env["PAPER_TRACKER_METRICS_TOKEN"], "completed": 2, "total": 32, "failed": 1, "unconfirmed": 1}))
+                job = journal_manager.journal_payload()["job"]
+                self.assertEqual(job["status"], "running")
+                self.assertEqual(job["metrics_progress"], {"completed": 2, "total": 32, "failed": 1, "unconfirmed": 1, "current_journal": None})
+                from subprocess import CompletedProcess
+                return CompletedProcess(arguments, 0, stdout="Metrics checked")
+
+            with patch.object(journal_manager.subprocess, "run", side_effect=run):
+                journal_manager.run_command(["python3", "scripts/update_metrics.py"])
+
     def test_collection_subprocess_can_publish_progress_before_it_finishes(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(journal_manager, "DATA_DIR", Path(directory)), patch.object(journal_manager, "filter_journal_ids", return_value=[]), patch.object(journal_manager, "public_llm_settings", return_value={}):
             journal_manager.JOB.update(status="running", kind="manual", stage="collect")
