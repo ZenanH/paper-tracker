@@ -85,7 +85,7 @@ function setTheme(value) {
   state.theme = ['system', 'light', 'dark'].includes(value) ? value : 'system';
   document.documentElement.dataset.theme = state.theme === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : state.theme;
   storage('paper-tracker-theme', state.theme);
-  document.querySelector('meta[name="theme-color"]').content = document.documentElement.dataset.theme === 'dark' ? '#13191f' : '#edf1f3';
+  document.querySelector('meta[name="theme-color"]').content = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
   document.querySelectorAll('[data-theme]').forEach(button => {
     if (button === document.documentElement) return;
     const active = button.dataset.theme === state.theme;

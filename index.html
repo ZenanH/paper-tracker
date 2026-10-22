@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="Follow journals and read papers from the last three calendar months. Archive what you have read and save your favorites." />
-    <meta name="theme-color" content="#edf1f3" />
+    <meta name="theme-color" content="#f4f5f4" />
     <title>
       Paper Tracker
     </title>
@@ -25,10 +25,10 @@
         document.body.replaceChildren(main);
       });
     </script>
-    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
-    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="assets/styles.css?v=74e53d1756" />
-    <script type="module" src="assets/app.js?v=a07853ae02">
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg?v=8eb3c225ef" />
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=a1574a1da7" />
+    <link rel="stylesheet" href="assets/styles.css?v=c3fefd386d" />
+    <script type="module" src="assets/app.js?v=e29320f0d0">
     </script>
     <script type="module" src="assets/liquid-glass.js?v=28794e8f9b"></script>
   </head>
@@ -40,7 +40,7 @@
       <div class="header-inner glass" data-liquid-glass>
         <a class="brand" href="./">
           <span class="brand-icon" aria-hidden="true">
-            ▤
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><use href="assets/favicon.svg?v=8eb3c225ef#book"/></svg>
           </span>
           <span>
             Paper Tracker
@@ -88,7 +88,7 @@
         </button>
       </div>
       <section id="journals-view" hidden aria-label="Journals">
-        <div class="follow-panel surface">
+        <div class="follow-panel">
           <label for="journal-name">
             Follow a journal
           </label>
@@ -119,7 +119,7 @@
         </div>
       </section>
       <section id="reading-view" aria-label="Paper reading">
-        <div class="reading-toolbar surface">
+        <div class="reading-toolbar">
           <div class="reading-filters">
             <form id="paper-search-form" class="paper-search-form" role="search" aria-label="Search paper titles">
               <label class="search-field">
@@ -190,12 +190,15 @@
           </h3>
           <div class="theme-options" role="group" aria-label="Theme">
             <button data-theme="system">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>
               System
             </button>
             <button data-theme="light">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg>
               Light
             </button>
             <button data-theme="dark">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.463.402.807a6.25 6.25 0 0 0 8.268 8.268c.344-.215.829-.004.803.397"/></svg>
               Dark
             </button>
           </div>
@@ -280,7 +283,7 @@
             Filter rules
           </h2>
           <button class="icon-button" value="cancel" aria-label="Close rule editor">
-            ×
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg>
           </button>
         </div>
         <div class="settings-body">

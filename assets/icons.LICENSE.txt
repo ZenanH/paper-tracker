@@ -1,4 +1,4 @@
-Lucide Settings icon (in assets/app.js)
+Lucide icons (navigation book logo, theme controls and Settings icon)
 
 ISC License
 

@@ -1,20 +1,23 @@
 :root {
   color-scheme: light;
-  --bg: #edf1f3;
+  --bg: #f4f5f4;
   --surface: #fff;
-  --subtle: #f0f2f5;
-  --ink: #242a33;
-  --muted: #616b79;
-  --line: #e3e7ed;
+  --subtle: #eef0ef;
+  --ink: #252925;
+  --muted: #626b65;
+  --line: #dfe4e0;
   --accent: #276359;
   --accent-soft: #e9f2ee;
   --warm: #936415;
   --danger: #b33435;
-  --glass-frost: rgba(255, 255, 255, .72);
+  --glass-frost: rgba(255, 255, 255, .30);
   --glass-rim: rgba(255, 255, 255, .92);
   --glass-border: rgba(255, 255, 255, .68);
   --glass-shadow: 0 12px 36px #26374416, 0 2px 6px #26374408;
-  --glass-active-shine: #ffffff52;
+  --control-radius: 8px;
+  --control-height: 44px;
+  --on-accent: #fff;
+  --scrim: #151b1866;
   --mesh-mint: #9bcbb749;
   --mesh-blue: #9fbae84a;
   --mesh-pearl: #d8b8d634;
@@ -27,21 +30,22 @@
 
 :root[data-theme=dark] {
   color-scheme: dark;
-  --bg: #13191f;
-  --surface: #1c2229;
-  --subtle: #252c35;
-  --ink: #e9edf2;
-  --muted: #a8b3c0;
-  --line: #343e49;
+  --bg: #151718;
+  --surface: #1e2122;
+  --subtle: #292d2e;
+  --ink: #edf0ed;
+  --muted: #adb6b0;
+  --line: #373e3a;
   --accent: #93d6bd;
   --accent-soft: #243f37;
   --warm: #e7bf75;
   --danger: #ff9d9d;
-  --glass-frost: rgba(28, 34, 41, .78);
+  --glass-frost: rgba(21, 23, 24, .38);
   --glass-rim: rgba(255, 255, 255, .24);
   --glass-border: rgba(255, 255, 255, .12);
   --glass-shadow: 0 12px 36px #0004, 0 2px 6px #0002;
-  --glass-active-shine: #ffffff14;
+  --on-accent: #14231e;
+  --scrim: #080b0acc;
   --mesh-mint: #398b6f30;
   --mesh-blue: #5a7dc343;
   --mesh-pearl: #8b668b23;
@@ -49,7 +53,8 @@
 }
 
 * {
-  box-sizing: border-box
+  box-sizing: border-box;
+  letter-spacing: 0;
 }
 
 [hidden] {
@@ -118,7 +123,6 @@ p {
 
 h1 {
   font-size: 32px;
-  letter-spacing: -1.1px;
   font-weight: 650;
   line-height: 1.3
 }
@@ -197,7 +201,7 @@ small {
 }
 
 .header-inner {
-  max-width: 1120px;
+  max-width: 1056px;
   min-height: 70px;
   margin: auto;
   padding: 10px 18px;
@@ -205,7 +209,7 @@ small {
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 20px;
-  border-radius: 26px;
+  border-radius: 20px;
   pointer-events: auto;
 }
 
@@ -298,12 +302,12 @@ small {
   place-items: center;
   width: 34px;
   height: 38px;
-  border-radius: 10px;
-  background: var(--accent-soft);
   color: var(--accent);
   font-size: 26px;
   font-weight: 400
 }
+
+.brand-icon svg { width: 25px; height: 25px; }
 
 .view-tabs {
   display: flex;
@@ -315,6 +319,7 @@ small {
 }
 
 .view-tabs button {
+  position: relative;
   border: 0;
   background: transparent;
   padding: 8px 17px;
@@ -327,9 +332,19 @@ small {
 }
 
 .view-tabs button.is-active {
-  background: linear-gradient(160deg, var(--glass-active-shine), #ffffff08), var(--accent-soft);
   color: var(--ink);
-  box-shadow: inset 0 1px 0 var(--glass-rim), 0 2px 8px #14292b0c;
+  font-weight: 650;
+}
+
+.view-tabs button.is-active::after {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  left: calc(50% - 7px);
+  width: 14px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
 }
 
 .count {
@@ -345,7 +360,7 @@ small {
   display: inline-grid;
   place-items: center;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--control-radius);
   background: var(--surface);
   padding: 0;
   flex: 0 0 auto;
@@ -382,17 +397,17 @@ small {
 .button {
   border: 1px solid var(--line);
   background: var(--surface);
-  border-radius: 999px;
-  padding: 8px 13px;
-  min-height: 38px;
+  border-radius: var(--control-radius);
+  padding: 9px 14px;
+  min-height: var(--control-height);
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 550
 }
 
 .button.primary {
-  background: linear-gradient(160deg, #ffffff15, transparent), var(--accent);
-  color: var(--surface);
+  background: var(--accent);
+  color: var(--on-accent);
   border-color: var(--accent);
   box-shadow: inset 0 1px 0 #ffffff26, 0 2px 5px #14292b10;
 }
@@ -409,10 +424,6 @@ small {
 .refresh-button .saving-spinner {
   width: 12px;
   height: 12px;
-}
-
-:root[data-theme=dark] .button.primary {
-  color: #14231e
 }
 
 .button.quiet {
@@ -467,12 +478,12 @@ html.keyboard button:active {
 .surface {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 20px;
+  border-radius: 8px;
   box-shadow: 0 3px 16px #17283a03;
 }
 
 .follow-panel {
-  padding: 24px
+  padding: 0 0 8px;
 }
 
 .follow-panel>label {
@@ -493,8 +504,9 @@ html.keyboard button:active {
 }
 
 .search-action {
-  height: 44px;
-  min-height: 44px;
+  height: var(--control-height);
+  min-height: var(--control-height);
+  min-width: 80px;
   padding: 10px 14px;
 }
 
@@ -526,10 +538,11 @@ html.keyboard-navigation #paper-search:focus {
 }
 
 #journal-name {
-  border-radius: 999px;
-  background: var(--subtle);
-  border-color: transparent;
-  padding-left: 16px;
+  border-radius: var(--control-radius);
+  background: var(--surface);
+  border-color: var(--line);
+  padding-left: 14px;
+  height: var(--control-height);
 }
 
 .job-status {
@@ -553,7 +566,7 @@ input,
 textarea {
   border: 1px solid var(--line);
   background: var(--surface);
-  border-radius: 9px;
+  border-radius: var(--control-radius);
   padding: 10px 12px;
   color: var(--ink);
   min-width: 0;
@@ -606,7 +619,7 @@ textarea::placeholder {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 16px;
   align-items: center;
-  padding: 21px 24px
+  padding: 22px 24px;
 }
 
 .following-item+.following-item {
@@ -614,7 +627,7 @@ textarea::placeholder {
 }
 
 .following-item h3 {
-  font-size: 14px;
+  font-size: 15px;
   overflow-wrap: anywhere
 }
 
@@ -626,7 +639,7 @@ textarea::placeholder {
 }
 
 .badge {
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
   padding: 3px 7px;
   border: 1px solid var(--line);
@@ -679,8 +692,7 @@ input[type=checkbox] {
 }
 
 .reading-toolbar {
-  padding: 4px 6px 4px 14px;
-  border-radius: 28px;
+  padding: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -715,10 +727,14 @@ input[type=checkbox] {
   display: flex;
   flex: 1;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   min-width: 0;
   max-width: 210px;
   min-height: 44px;
+  padding: 0 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
 }
 
 .search-field svg {
@@ -734,7 +750,7 @@ input[type=checkbox] {
   padding: 8px 2px;
   min-width: 0;
   width: 100%;
-  font-size: 12px
+  font-size: 14px
 }
 
 
@@ -766,7 +782,7 @@ input[type=checkbox] {
   justify-content: space-between;
   gap: 12px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   margin: 20px 0 10px
 }
 
@@ -782,7 +798,7 @@ input[type=checkbox] {
   top: 94px;
   z-index: 4;
   padding: 10px 14px;
-  border-radius: 20px;
+  border-radius: 16px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -798,10 +814,22 @@ input[type=checkbox] {
   justify-content: flex-end
 }
 
+/* A single rim per glass surface; children communicate state through type. */
+.glass .button,
+.glass .icon-button,
+.glass .view-tabs button {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.selection-bar #bulk-favorite { color: var(--accent); font-weight: 650; }
+
 .paper-list {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 20px;
+  border-radius: 8px;
   overflow: clip
 }
 
@@ -822,7 +850,7 @@ input[type=checkbox] {
   font-size: 15px;
   line-height: 1.4;
   overflow-wrap: anywhere;
-  letter-spacing: -.1px
+  letter-spacing: 0;
 }
 
 .journal-selection {
@@ -874,7 +902,7 @@ input[type=checkbox] {
 }
 
 .article-title-en {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
   color: var(--muted);
   display: block;
@@ -898,7 +926,7 @@ input[type=checkbox] {
   flex-wrap: wrap;
   gap: 5px 12px;
   margin-top: 9px;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted)
 }
 
@@ -983,7 +1011,7 @@ input[type=checkbox] {
 .settings-dialog,
 .rules-dialog {
   border: 1px solid var(--line);
-  border-radius: 26px;
+  border-radius: 8px;
   background: var(--surface);
   color: var(--ink);
   padding: 0;
@@ -1001,7 +1029,7 @@ input[type=checkbox] {
 
 .settings-dialog::backdrop,
 .rules-dialog::backdrop {
-  background: #111c2b66
+  background: var(--scrim);
 }
 
 .dialog-header {
@@ -1036,6 +1064,8 @@ input[type=checkbox] {
   padding-top: 24px
 }
 
+.settings-section > h3 { margin-bottom: 12px; }
+
 .settings-section+.settings-section {
   border-top: 1px solid var(--line);
   margin-top: 24px
@@ -1052,12 +1082,18 @@ input[type=checkbox] {
 }
 
 .theme-options button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--control-radius);
   padding: 13px 8px;
   font-size: 12px
 }
+
+.theme-options svg { width: 17px; height: 17px; flex: none; }
 
 .theme-options small {
   display: block;
@@ -1175,6 +1211,14 @@ summary {
     background: var(--subtle)
   }
 
+  .glass button:not(:disabled):hover {
+    background: transparent;
+    color: var(--accent);
+    filter: none;
+  }
+
+  [data-unfollow]:not(:disabled):hover { color: var(--danger); }
+
   .article-title:hover,
   .article-title-en:hover {
     color: var(--accent);
@@ -1287,7 +1331,7 @@ summary {
 
 
   .follow-panel {
-    padding: 18px
+    padding: 0 0 8px;
   }
 
   .search-row {
@@ -1317,12 +1361,12 @@ summary {
   }
 
   .following-item>.button {
-    font-size: 10px;
-    padding: 8px
+    font-size: 12px;
+    padding: 8px;
   }
 
   .reading-toolbar {
-    padding: 4px 6px 4px 12px
+    padding: 0;
   }
 
 
@@ -1372,7 +1416,7 @@ summary {
   }
 
   .badge {
-    font-size: 9px
+    font-size: 11px;
   }
 
   .journal-selection {
@@ -1414,7 +1458,7 @@ summary {
   .rules-dialog {
     width: calc(100% - 20px);
     max-height: calc(100dvh - 20px);
-    border-radius: 14px
+    border-radius: 8px;
   }
 
   .dialog-header {
@@ -1535,7 +1579,7 @@ html {
 }
 
 .journal-section:first-child .journal-header {
-  border-radius: 19px 19px 0 0;
+  border-radius: 7px 7px 0 0;
 }
 
 .selection-bar {

@@ -2,6 +2,7 @@
 import hashlib
 import re
 import unittest
+import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -26,6 +27,17 @@ class Document(HTMLParser):
 
 
 class FrontendContractTests(unittest.TestCase):
+    def test_brand_favicon_and_readme_share_the_book_icon(self):
+        html = (ROOT / "index.html").read_text()
+        favicon = re.search(r'<link rel="icon"[^>]+href="([^"]+)"', html).group(1).split("?")[0]
+        use = re.search(r'<use href="([^"]+)"', html).group(1)
+        source, fragment = use.split("#")
+        self.assertEqual(source.split("?")[0], favicon)
+        self.assertIn(f'src="{favicon}"', (ROOT / "README.md").read_text())
+        svg = ET.parse(ROOT / favicon).getroot()
+        self.assertEqual(svg.attrib["viewBox"], "0 0 24 24")
+        self.assertIsNotNone(svg.find(f".//*[@id='{fragment}']"))
+
     def test_dom_ids_referenced_by_app_exist_in_html_or_generated_markup(self):
         document = Document((ROOT / "index.html").read_text())
         script = (ROOT / "assets/app.js").read_text()

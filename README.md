@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/favicon.svg" alt="论文追踪图标" width="72" height="72">
+  <img src="assets/favicon.svg" alt="Paper Tracker open-book logo" width="72" height="72">
 </p>
 
 <h1 align="center">论文追踪</h1>
