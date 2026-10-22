@@ -3,7 +3,7 @@
 
 接口：
   GET  /api/archive   → {"updated_at":..., "items":{...}, "cleared_items":{...}, "favorites":{...}}
-  POST /api/archive   → add/remove/clear/restore_cleared/favorite/unfavorite
+  POST /api/archive   → add/remove/favorite/unfavorite
                          （Prefer: return=minimal 时只返回更新时间）
   GET  /api/healthz   → health check
 
@@ -188,12 +188,12 @@ def apply_archive(payload: dict) -> dict:
     """在锁内读改写，返回新状态。"""
     action = str(payload.get("action") or "").strip()
     allowed_actions = {
-        "add", "remove", "clear", "restore_cleared",
+        "add", "remove",
         "favorite", "unfavorite",
     }
     if action not in allowed_actions:
         raise ValueError(
-            "action must be add, remove, clear, restore_cleared, favorite, or unfavorite."
+            "action must be add, remove, favorite, or unfavorite."
         )
 
     with state_lock():
@@ -248,27 +248,6 @@ def apply_archive(payload: dict) -> dict:
                 if not isinstance(raw_id, str):
                     continue
                 changed = favorites.pop(raw_id, None) is not None or changed
-        elif action == "clear":
-            for raw_id in raw_ids:
-                if not isinstance(raw_id, str):
-                    continue
-                item = items.pop(raw_id, None)
-                if item is None:
-                    continue
-                item["cleared_at"] = item.get("cleared_at") or now_iso()
-                cleared_items[raw_id] = item
-                changed = True
-        else:
-            for raw_id in raw_ids:
-                if not isinstance(raw_id, str):
-                    continue
-                item = cleared_items.pop(raw_id, None)
-                if item is None:
-                    continue
-                item.pop("cleared_at", None)
-                items[raw_id] = item
-                changed = True
-
         if changed:
             state["updated_at"] = now_iso()
             write_state(state)

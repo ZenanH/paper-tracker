@@ -15,7 +15,7 @@
 
 - `server/run.py` 是镜像入口，启动静态/数据网关、`archive-api` 和 `journal-manager`；网页与 API 同源。网关在容器内监听 `0.0.0.0:8080`，内部 API 只监听随机回环端口。网关健康检查须确认两个内部服务均可用；子进程异常退出时容器退出，收到 SIGTERM 时终止子进程。
 - 所有持久文件统一位于容器 `/data`；服务器只需挂载一个可读写目录。根目录保存日期论文、期刊元数据、运行配置、翻译/分类缓存、过滤审计和任务状态；`/data/archive/archive.json` 保存已读状态、永久收藏及导入后数据集标识；`/data/secrets/` 保存受保护凭据。启动、升级和容器重建不得清空挂载目录。
-- 2026-10-21 用户已授权清空此前的 `data/`、`archive/` 与 `.runtime/` 数据和备份，作为新版本起点；本次保留 `secrets/`，后续不得自动重复清空。
+- 2026-10-21 的旧数据重置授权不得自动重复使用；2026-10-22 用户要求清理旧代码，已删除仓库根目录仅含 Gist 旧凭据的 `secrets/` 及过时验收截图。根目录不再需要运行数据目录；当前挂载的 `.runtime/docker-data/` 和其中 `/data/secrets/llm-config.json` 必须保留。
 - `scripts/deploy.sh` 通过 `tailscale ip -4` 获取宿主机 Tailscale IPv4，并让 Compose 发布 `<tailscale-ip>:8899:8080`；Tailscale IPv4 变化后须重新运行脚本更新绑定。Compose 直接运行时安全默认绑定 `127.0.0.1:8899`。容器默认 UID/GID 为 1000:1000，挂载目录须提前创建并授予对应用户写权限。测试使用临时目录，不能自动覆盖本机现有凭据。
 - 模型凭据在 `/data/secrets/llm-config.json`。目录权限 0700，文件 0600；原子写入，管理 API 永不回传密钥或令牌。静态网关只公开 `manifest.json`、`journals.json` 和日期论文文件，其他 `/data` 文件均须拒绝。日志和前端产物不得包含凭据。
 - `CROSSREF_MAILTO` 仅用于请求联系信息，不主动显示于 UI，不硬编码邮箱。未配置时不附加邮箱参数。
@@ -51,6 +51,7 @@
 - **Unfollow 仅停止关注和采集，保留全部收藏。** 从关注列表、过滤选择和普通窗口数据中移除该刊，并清理其普通归档、采集状态及无引用缓存；不移除收藏，不影响其他期刊。
 - 取消关注期刊的完整名称、稳定 ID、分组、分区、IF 和配置保存在 `unfollowed_journals`，使 Favorites 仍能按期刊显示，并能按原稳定 ID 再次关注。后台清理使用保留 favorites 的动作，不能调用会删除收藏的 `remove_all`。
 - 不把 Unfollow 与彻底删除混用；当前 UI 不提供独立的彻底删除入口。
+- 归档 API 仅支持 add/remove/favorite/unfavorite；旧 clear/restore_cleared/remove_all 操作须拒绝且不得改变文件。remove 仅用于 Unfollow 的普通已读清理。已有 cleared_items 保持只读兼容和按窗口清理，不能让其记录重新出现，也不能影响收藏。
 
 ## 中科院分区与 IF
 
@@ -118,4 +119,5 @@
 - 变更后更新 index.html 中静态资源内容 hash。使用 `docker compose config --quiet` 核验编排配置，构建镜像并执行 `python3 tests/smoke_container.py paper-tracker:ci`，确认单一 `/data` 挂载、Refresh、收藏跨容器重建保留、凭据权限与静态拒读、SIGTERM 退出。镜像发布或推送代码须在用户授权范围内；不能只配置工作流就宣称 CI 构建成功。
 - 手动完整更新使用 UI，或 `POST /api/admin/run`，JSON `{"mode":"daily"}`；显式回填可用 mode=backfill、可选非空有效 journal_ids。指标更新 `POST /api/admin/metrics/update`。维护脚本为 collect.py、translate.py、sync_cas.py、update_metrics.py、validate_data.py。
 - 需要维护脚本写入运行数据时先保证常驻任务空闲，避免绕开互斥。真实运行检查报告时间、刊数及失败源，区分手动/启动补跑成功与实际定时触发成功；不将模拟模型测试表述为真实模型调用成功。
-- 本机真实数据与验收快照属于 `.runtime/` 及 `data/`、`archive/`、`secrets/`，不向代码仓库提交，也不写入说明中的敏感凭据。清理代码时默认保留这些用户数据，用户明确授权的重置除外；完整恢复前保留当前 data/archive；含密钥备份先加密。
+- 本机真实数据集中于 `.runtime/docker-data/`，部署后统一挂载为 `/data`，不向代码仓库提交，也不写入说明中的敏感凭据。根目录 data/archive/secrets 的忽略规则仅防止意外提交，不代表仍使用这些旧位置。清理代码不删除当前挂载数据；完整恢复前保留当前 data/archive；含密钥备份先加密。
+- 清理时核对生产引用、DOM ID 和静态资源 hash；`tests/test_frontend_contract.py` 保证 HTML 与 JS 同步。移除旧业务入口及无调用代码，不移除保证既有论文 ID、已读/收藏和旧中断恢复完整性的兼容处理。设置图标使用本地静态 Lucide 齿轮，许可在 assets/icons.LICENSE.txt，无新增前端运行依赖。

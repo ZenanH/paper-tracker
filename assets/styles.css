@@ -142,14 +142,6 @@ small {
   font-size: 13px
 }
 
-.eyebrow {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 1.8px;
-  margin-bottom: 8px
-}
-
 .sr-only {
   position: absolute;
   width: 1px;
@@ -746,20 +738,6 @@ input[type=checkbox] {
 }
 
 
-.date-row {
-  width: 100%;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  border-top: 1px solid var(--line);
-  padding-top: 14px
-}
-
-.date-row input {
-  min-height: 40px;
-  font-size: 13px
-}
-
 
 
 
@@ -1039,10 +1017,6 @@ input[type=checkbox] {
 
 .dialog-header h2 {
   font-size: 21px
-}
-
-.dialog-header .eyebrow {
-  margin-bottom: 3px
 }
 
 .dialog-header .icon-button {
@@ -1426,25 +1400,6 @@ summary {
     min-height: 36px
   }
 
-
-  .date-row {
-    gap: 6px;
-    flex-wrap: wrap
-  }
-
-  .date-row .icon-button {
-    width: 36px;
-    height: 40px
-  }
-
-  .date-row input {
-    font-size: 16px;
-    width: 155px
-  }
-
-  .date-row .button {
-    padding: 8px
-  }
 
   .results-heading {
     gap: 4px

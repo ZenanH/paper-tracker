@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
-import os
 import re
 import time
 import urllib.error
@@ -479,7 +478,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--retranslate-existing",
         action="store_true",
-        help="Replace translations produced by a different engine; intended for the one-off backfill.",
+        help="Explicitly retranslate existing titles produced by a different engine.",
     )
     options = parser.parse_args()
     raise SystemExit(

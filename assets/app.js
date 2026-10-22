@@ -49,7 +49,8 @@ const escape = (value = '') => String(value ?? '').replace(/[&<>"']/g, c => ({
   "'": '&#39;'
 } [c]));
 const icons = {
-  settings: '<path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="m9 3-1 3-3 1-2 3 2 3v3l3 2 3-1 3 1 3-2v-3l2-3-2-3-3-1-1-3Z"/>',
+  // Lucide Settings, ISC license: assets/icons.LICENSE.txt.
+  settings: '<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/>',
   star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"/>',
   archive: '<rect x="3" y="3" width="18" height="5" rx="1.5"/><path d="M5 8v12h14V8M10 12h4"/>',
   search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',
@@ -273,10 +274,7 @@ function renderSaveProgress() {
     $('save-label').textContent = progress.phase === 'checking' ? 'Checking saved papers…' : ({
       add: 'Archiving papers…',
       favorite: 'Saving favorites…',
-      unfavorite: 'Removing favorites…',
-      remove: 'Marking papers unread…',
-      clear: 'Hiding archived papers…',
-      restore_cleared: 'Restoring archived papers…'
+      unfavorite: 'Removing favorites…'
     })[progress.action] || 'Saving changes…';
     $('save-count').textContent = `${countFormatter.format(progress.confirmed)} / ${countLabel(progress.total, 'paper')} confirmed`;
     $('save-progress').setAttribute('aria-valuemax', progress.total);
@@ -532,23 +530,8 @@ function applyArchiveLocally(action, records) {
         delete state.archive.cleared_items[id];
         delete bucket[id].cleared_at;
       }
-    } else if (action === 'remove') {
-      delete state.archive.items[id];
-      delete state.archive.cleared_items[id];
     } else if (action === 'unfavorite') {
       delete state.archive.favorites[id];
-    } else if (action === 'clear' && state.archive.items[id]) {
-      state.archive.cleared_items[id] = {
-        ...state.archive.items[id],
-        cleared_at: timestamp
-      };
-      delete state.archive.items[id];
-    } else if (action === 'restore_cleared' && state.archive.cleared_items[id]) {
-      state.archive.items[id] = {
-        ...state.archive.cleared_items[id]
-      };
-      delete state.archive.items[id].cleared_at;
-      delete state.archive.cleared_items[id];
     }
   }
 }
@@ -610,11 +593,8 @@ async function mutateArchive(action, records) {
     }
     const message = ({
       add: 'Archived',
-      remove: 'Marked unread',
       favorite: 'Saved to favorites',
-      unfavorite: 'Favorite removed',
-      clear: 'Archives hidden',
-      restore_cleared: 'Hidden archives restored'
+      unfavorite: 'Favorite removed'
     })[action];
     notify(action === 'add' ? `${message} ${countLabel(records.length, 'paper')}` : message);
   } catch (error) {

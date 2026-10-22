@@ -5,7 +5,6 @@ import html
 import http.client
 import os
 import re
-import urllib.error
 import urllib.request
 import urllib.parse
 from typing import Any
@@ -19,18 +18,6 @@ USER_AGENT = (
     if MAILTO
     else "Mozilla/5.0 (compatible; PaperTracker/1.0)"
 )
-LABEL_PATTERNS = (
-    re.compile(
-        r"(?:Journal\s+Impact\s+Factor|Impact\s+Factor)\s*(?:\([^)]*(20\d{2})[^)]*\))?\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?)",
-        re.I,
-    ),
-    re.compile(
-        r"([0-9]+(?:\.[0-9]+)?)\s*(?:</?[^>]+>\s*){0,4}(?:Journal\s+Impact\s+Factor|Impact\s+Factor)",
-        re.I,
-    ),
-)
-
-
 def fetch(url: str) -> str:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "text/html"})
     with urllib.request.urlopen(request, timeout=45) as response:

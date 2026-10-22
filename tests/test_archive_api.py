@@ -73,31 +73,19 @@ class ArchiveApiTests(unittest.TestCase):
         state = archive_api.apply_archive({"action": "unfavorite", "ids": ["saved"], "dataset_id": "existing-dataset"})
         self.assertNotIn("saved", state["favorites"])
 
-    def test_clear_keeps_read_state_and_restore_cleared_makes_it_visible(self):
+    def test_legacy_read_records_remain_read_and_can_be_removed_by_unfollow(self):
         article = {
             "id": "doi:10.1000/example",
             "journal_id": "example",
             "date": "2026-09-18",
             "title_en": "Example",
         }
-        state = archive_api.apply_archive({"action": "add", "items": [article]})
-        self.assertIn(article["id"], state["items"])
-
-        state = archive_api.apply_archive({"action": "clear", "ids": [article["id"]]})
-        self.assertNotIn(article["id"], state["items"])
-        self.assertIn(article["id"], state["cleared_items"])
-        self.assertIn("cleared_at", state["cleared_items"][article["id"]])
-
-        state = archive_api.apply_archive(
-            {"action": "restore_cleared", "ids": [article["id"]]}
-        )
-        self.assertIn(article["id"], state["items"])
-        self.assertNotIn(article["id"], state["cleared_items"])
-        self.assertNotIn("cleared_at", state["items"][article["id"]])
-
+        self.archive_file.write_text(json.dumps({"items": {}, "cleared_items": {article["id"]: article}, "favorites": {article["id"]: article}}))
+        self.assertIn(article["id"], archive_api.read_pruned_state()["cleared_items"])
         state = archive_api.apply_archive({"action": "remove", "ids": [article["id"]]})
         self.assertNotIn(article["id"], state["items"])
         self.assertNotIn(article["id"], state["cleared_items"])
+        self.assertIn(article["id"], state["favorites"])
 
     def test_retention_prunes_visible_and_cleared_items(self):
         self.archive_file.write_text(
@@ -183,14 +171,12 @@ class ArchiveApiTests(unittest.TestCase):
         }
         archive_api.apply_archive({"action": "favorite", "items": [article]})
         archive_api.apply_archive({"action": "add", "items": [article]})
-        archive_api.apply_archive({"action": "clear", "ids": [article["id"]]})
-        archive_api.apply_archive({"action": "restore_cleared", "ids": [article["id"]]})
         state = archive_api.apply_archive({"action": "remove", "ids": [article["id"]]})
         self.assertIn(article["id"], state["favorites"])
         self.assertNotIn(article["id"], state["items"])
         self.assertNotIn(article["id"], state["cleared_items"])
 
-    def test_destructive_remove_all_action_is_not_supported(self):
+    def test_removed_archive_actions_are_rejected_without_changing_saved_state(self):
         article = {
             "id": "doi:10.1000/delete",
             "journal_id": "example",
@@ -199,8 +185,11 @@ class ArchiveApiTests(unittest.TestCase):
         }
         archive_api.apply_archive({"action": "favorite", "items": [article]})
         archive_api.apply_archive({"action": "add", "items": [article]})
-        with self.assertRaisesRegex(ValueError, "action must be"):
-            archive_api.apply_archive({"action": "remove_all", "ids": [article["id"]]})
+        before = self.archive_file.read_bytes()
+        for action in ("remove_all", "clear", "restore_cleared"):
+            with self.subTest(action=action), self.assertRaisesRegex(ValueError, "action must be"):
+                archive_api.apply_archive({"action": action, "ids": [article["id"]]})
+            self.assertEqual(self.archive_file.read_bytes(), before)
         state = archive_api.read_state()
         self.assertIn(article["id"], state["favorites"])
         self.assertIn(article["id"], state["items"])

@@ -304,7 +304,7 @@ class JournalManagementTests(unittest.TestCase):
             journal_manager, "llm_is_configured", return_value=True
         ), patch.object(journal_manager, "metrics_due", return_value=True), patch.object(
             journal_manager, "set_job"
-        ) as stage, patch.object(journal_manager, "mark_reconciled") as reconciled:
+        ) as stage:
             journal_manager.daily_pipeline()
         self.assertEqual([call.args[0] for call in command.call_args_list], [
             ["python3", "scripts/collect.py", "--mode", "daily"],
@@ -313,14 +313,13 @@ class JournalManagementTests(unittest.TestCase):
             ["python3", "scripts/validate_data.py"],
         ])
         self.assertEqual([call.kwargs["stage"] for call in stage.call_args_list], ["collect", "translate", "metrics", "validate"])
-        reconciled.assert_called_once_with()
 
     def test_refresh_without_model_still_collects_and_validates(self):
         with patch.object(journal_manager, "run_command") as command, patch.object(
             journal_manager, "llm_is_configured", return_value=False
         ), patch.object(journal_manager, "metrics_due", return_value=False), patch.object(
             journal_manager, "set_job"
-        ) as stage, patch.object(journal_manager, "mark_reconciled"), patch.object(journal_manager, "append_log"):
+        ) as stage, patch.object(journal_manager, "append_log"):
             journal_manager.daily_pipeline()
         self.assertEqual([call.args[0] for call in command.call_args_list], [
             ["python3", "scripts/collect.py", "--mode", "daily"],
@@ -331,10 +330,9 @@ class JournalManagementTests(unittest.TestCase):
     def test_refresh_collection_failure_stops_pipeline_and_marks_job_failed(self):
         with patch.object(journal_manager, "run_command", side_effect=RuntimeError("Collection failed")), patch.object(
             journal_manager, "set_job"
-        ) as state, patch.object(journal_manager, "run_translation") as translate, patch.object(journal_manager, "mark_reconciled") as mark:
+        ) as state, patch.object(journal_manager, "run_translation") as translate:
             journal_manager.execute_job("manual", journal_manager.daily_pipeline)
         translate.assert_not_called()
-        mark.assert_not_called()
         self.assertEqual(state.call_args.kwargs["status"], "failed")
         self.assertIsNone(state.call_args.kwargs["stage"])
 
@@ -394,20 +392,6 @@ class JournalManagementTests(unittest.TestCase):
                 self.assertTrue(journal_manager.daily_catchup_due(tomorrow))
                 path.write_text(json.dumps({"collection_checked_at": "2026-09-20T00:10:00Z"}), encoding="utf-8")
                 self.assertFalse(journal_manager.daily_catchup_due(tomorrow))
-
-    def test_weekly_reconciliation_due_uses_persistent_date(self):
-        with tempfile.TemporaryDirectory() as directory:
-            maintenance = Path(directory) / "maintenance-status.json"
-            with patch.object(journal_manager, "MAINTENANCE_PATH", maintenance):
-                self.assertTrue(journal_manager.reconciliation_due(date(2026, 9, 19)))
-                maintenance.write_text(
-                    json.dumps({"last_reconciled_date": "2026-09-13"}), encoding="utf-8"
-                )
-                self.assertFalse(journal_manager.reconciliation_due(date(2026, 9, 19)))
-                maintenance.write_text(
-                    json.dumps({"last_reconciled_date": "2026-09-12"}), encoding="utf-8"
-                )
-                self.assertTrue(journal_manager.reconciliation_due(date(2026, 9, 19)))
 
 
 if __name__ == "__main__":

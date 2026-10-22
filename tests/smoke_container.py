@@ -106,6 +106,14 @@ def main() -> None:
                     article = {"id": "smoke-favorite", "journal_id": "example", "date": today,
                                "title_en": "Persistent mechanics title", "url": "https://example.com/paper"}
                     request(base, "/api/archive", {"action": "favorite", "items": [article]})
+                    for action in ("clear", "restore_cleared", "remove_all"):
+                        try:
+                            request(base, "/api/archive", {"action": action, "ids": [article["id"]]})
+                        except HTTPError as exc:
+                            assert exc.code == 400, (action, exc.code)
+                            exc.close()
+                        else:
+                            raise AssertionError(f"Retired archive action accepted: {action}")
                     request(base, "/api/admin/llm", {"base_url": "https://models.invalid/v1",
                                                     "api_key": "offline-smoke-key", "model": "offline-smoke"})
                 assert "smoke-favorite" in request(base, "/api/archive")["favorites"]

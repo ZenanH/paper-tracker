@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 from datetime import date
-from pathlib import Path
 
 from common import DATA_DIR, article_key, iter_day_files, read_json, retention_start
 

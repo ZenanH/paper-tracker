@@ -6,7 +6,6 @@ import json
 import os
 import urllib.parse
 import urllib.request
-from datetime import timedelta
 from pathlib import Path
 from typing import Any
 

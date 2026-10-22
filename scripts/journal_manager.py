@@ -11,10 +11,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import archive_recovery
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler
 from http_service import ThreadingHTTPServer
-from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
@@ -67,7 +66,6 @@ JOB_DEFAULTS: dict[str, Any] = {
     "metrics_token": None,
 }
 JOB: dict[str, Any] = dict(JOB_DEFAULTS)
-MAINTENANCE_PATH = DATA_DIR / "maintenance-status.json"
 
 
 def save_job() -> None:
@@ -179,25 +177,6 @@ def metrics_due() -> bool:
     return checked_date <= subtract_months(datetime.now(BEIJING).date(), 3)
 
 
-def reconciliation_due(reference: date | None = None) -> bool:
-    current = reference or datetime.now(BEIJING).date()
-    payload = read_json(MAINTENANCE_PATH, {})
-    checked = payload.get("last_reconciled_date")
-    try:
-        checked_date = datetime.strptime(checked, "%Y-%m-%d").date()
-    except (TypeError, ValueError):
-        return True
-    return checked_date <= current - timedelta(days=7)
-
-
-def mark_reconciled(reference: date | None = None) -> None:
-    current = reference or datetime.now(BEIJING).date()
-    write_json(
-        MAINTENANCE_PATH,
-        {"last_reconciled_date": current.isoformat(), "updated_at": iso_now()},
-    )
-
-
 def daily_pipeline() -> None:
     set_job(stage="collect")
     run_command(["python3", "scripts/collect.py", "--mode", "daily"])
@@ -209,7 +188,6 @@ def daily_pipeline() -> None:
         run_command(["python3", "scripts/update_metrics.py"])
     set_job(stage="validate")
     run_command(["python3", "scripts/validate_data.py"])
-    mark_reconciled()
 
 
 def backfill_pipeline(journal_ids: list[str] | None = None) -> None:
@@ -220,8 +198,6 @@ def backfill_pipeline(journal_ids: list[str] | None = None) -> None:
         run_command(command)
     run_translation(2000)
     run_command(["python3", "scripts/validate_data.py"])
-    if journal_ids is None:
-        mark_reconciled()
 
 
 def add_pipeline(journal_id: str) -> None:

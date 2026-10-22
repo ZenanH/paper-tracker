@@ -10,7 +10,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -95,7 +95,7 @@ class CrossrefClient:
             items.extend(batch)
             next_cursor = message.get("next-cursor")
             # Crossref's documented end condition avoids an extra empty-page
-            # request for every short result set (especially 12-hour updates).
+            # request for every short result set.
             if len(batch) < 500 or not next_cursor or next_cursor == cursor:
                 break
             cursor = next_cursor

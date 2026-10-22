@@ -115,6 +115,23 @@ async function stub(page, model, {failedDate = false} = {}) {
     await page.locator('#close-settings').click();
     await page.waitForFunction(() => document.querySelector('#llm-api-key').value === '');
     assert.equal(await page.locator('#llm-api-key').inputValue(), '');
+    const settingsButton = page.getByRole('button', {name: 'Open settings', exact: true});
+    const settingsIcon = await settingsButton.locator('svg').evaluate(svg => {
+      const outline = svg.querySelector('path').getBBox(), hole = svg.querySelector('circle');
+      return {outlineInsideViewbox: outline.x >= 0 && outline.y >= 0 && outline.x + outline.width <= 24 && outline.y + outline.height <= 24,
+        centeredHole: hole.getAttribute('cx') === '12' && hole.getAttribute('cy') === '12', hidden: svg.getAttribute('aria-hidden')};
+    });
+    assert.deepEqual(settingsIcon, {outlineInsideViewbox: true, centeredHole: true, hidden: 'true'});
+    await settingsButton.focus(); await settingsButton.press('Enter');
+    await page.waitForFunction(() => document.querySelector('#settings-dialog').open);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('#settings-dialog').open);
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'settings-button');
+    if (process.env.PAPER_TRACKER_SCREENSHOTS) for (const width of [320, 1440]) for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({width, height: 844});
+      await page.emulateMedia({colorScheme: theme});
+      await page.screenshot({path: require('node:path').join(process.env.PAPER_TRACKER_SCREENSHOTS, `settings-control-${width}-${theme}.png`)});
+    }
     await page.setViewportSize({width: 1440, height: 1000});
     assert.equal(model.legacySupplementReads, 0);
     assert.equal(await page.locator('#paper-modes,#date-row,[data-archive],#bulk-archive').count(), 0);
