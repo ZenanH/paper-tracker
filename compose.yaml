@@ -6,7 +6,7 @@ services:
     restart: unless-stopped
     user: "${PAPER_TRACKER_UID:-1000}:${PAPER_TRACKER_GID:-1000}"
     ports:
-      - "127.0.0.1:${PAPER_TRACKER_PORT:-18898}:8080"
+      - "${PAPER_TRACKER_BIND_IP:-127.0.0.1}:${PAPER_TRACKER_PORT:-8899}:8080"
     environment:
       TZ: Asia/Shanghai
       PAPER_TRACKER_DATA_DIR: /data

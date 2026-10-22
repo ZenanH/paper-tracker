@@ -214,7 +214,7 @@ def save_manifest(journals: list[dict[str, Any]], target: date, collected: bool 
     payload = {
         "schema_version": 2,
         "date_policy": "current-month-start",
-        "update_interval_hours": 12,
+        "update_interval_hours": 24,
         "collection_checked_at": iso_now() if collected else previous.get("collection_checked_at"),
         "timezone": "Asia/Shanghai",
         "default_date": target.isoformat(),

@@ -8,7 +8,7 @@
 
 ## 主要功能
 
-- 每 12 小时（北京时间 01:00、13:00）检查最近三个自然月的新论文，并翻译中文标题；窗口包含当天。
+- 每天北京时间 01:00 自动检查最近三个自然月的新论文；其他时间由用户在 New papers 页面点击 Refresh 手动更新。窗口包含当天。
 - 没有完整发表日期的论文按首次处理时所在月份的 1 日收录，之后取得完整日期会自动修正。
 - 三个入口：Journals、New papers、Favorites；Favorites 直接展示收藏。
 - 按期刊浏览最近三个月论文，支持标题搜索、整刊归档和批量收藏。
@@ -33,26 +33,26 @@ cp .env.example .env
 sudo install -d -m 700 -o 1000 -g 1000 /data
 
 docker compose pull
-docker compose up -d
+./scripts/deploy.sh
 ```
 
 容器以 UID/GID `1000:1000` 运行。目录必须可由该用户读写；自定义用户时同步修改 `.env` 中的 `PAPER_TRACKER_UID`、`PAPER_TRACKER_GID` 及宿主目录所有者。如果宿主机 `/data` 已有其他用途，在 `.env` 中将 `PAPER_TRACKER_DATA_DIR` 改为本项目专用目录，例如 `/srv/paper-tracker/data`，并提前创建该目录；容器内挂载位置始终为 `/data`。
 
-打开 `http://127.0.0.1:18898/`。Compose 默认只向宿主机回环地址发布网页端口；公网访问应通过带 HTTPS 和访问认证的反向代理。归档和管理服务只监听容器内部回环地址，不发布独立端口。
+部署脚本会读取服务器本机 Tailscale IPv4（`tailscale ip -4`），并将网页绑定到该地址的 TCP `8899` 端口。访问 `http://<服务器的 Tailscale IPv4>:8899/`。服务器须已安装并连接 Tailscale；如果 Tailscale IP 发生变化，再运行一次部署脚本以更新 Docker 端口绑定。归档和管理服务只监听容器内部回环地址，不发布独立端口。
 
 请通过容器的 HTTP 地址访问，不要直接打开仓库中的 `index.html`：`file://` 无法读取服务端的期刊配置和 API。首次启动会先初始化默认 32 刊，论文列表在后台采集后陆续生成；已有关注列表（包括主动取消全部关注）保持原样。
 
 已有镜像不可用时可从源码构建：
 
 ```bash
-docker compose up -d --build
+PAPER_TRACKER_BIND_IP="$(tailscale ip -4)" PAPER_TRACKER_PORT=8899 docker compose up -d --build
 ```
 
 也可不使用 Compose，直接挂载服务器目录启动：
 
 ```bash
 docker run -d --name paper-tracker --init --restart unless-stopped \
-  -p 127.0.0.1:18898:8080 \
+  -p "$(tailscale ip -4):8899:8080" \
   --mount type=bind,source=/data,target=/data \
   ghcr.io/zenanh/paper-tracker:latest
 ```
@@ -81,7 +81,9 @@ docker run -d --name paper-tracker --init --restart unless-stopped \
 
 `/data/secrets` 权限为 `0700`，凭据文件为 `0600`。网页只公开论文日期清单、期刊元数据和日期论文文件；运行配置、审计、归档原文件及凭据不能作为静态文件访问。数据不会打进镜像或提交到 Git。
 
-首次启动从默认 32 刊初始化，之后保留用户修改。常驻管理服务在北京时间 01:00、13:00 更新论文，启动时恢复中断状态并按需补跑；页面 **Refresh** 可手动触发同一处理流程。实际完成时间取决于数据源和模型，不承诺即时完成。
+首次启动从默认 32 刊初始化，之后保留用户修改。常驻管理服务每天北京时间 01:00 更新论文；启动时恢复中断状态，若当天 01:00 的更新漏跑则补跑。其他时间由用户在 New papers 页面点击 **Refresh** 手动触发同一处理流程。实际完成时间取决于数据源和模型，不承诺即时完成。
+
+经 Tailscale 远程访问时，直接打开宿主机 Tailscale IPv4 的 `8899` 端口。归档会在页面顶部显示逐批保存确认；超过 8 秒提示慢连接，提交未完成时浏览器会提示确认后再离开。实际归档由容器写入 `/data/archive/archive.json`。
 
 可在 `.env` 中设置 `CROSSREF_MAILTO`（可选）。模型 Base URL、API Key 和模型名称在网页 Settings 中配置。
 
@@ -90,7 +92,7 @@ docker run -d --name paper-tracker --init --restart unless-stopped \
 ```bash
 git pull --ff-only
 docker compose pull
-docker compose up -d
+./scripts/deploy.sh
 docker compose logs --tail=100 paper-tracker
 ```
 

@@ -60,7 +60,7 @@ async function stub(page, model, {failedDate = false} = {}) {
       return route.fulfill({status: 202, json: {journals, job: model.job, llm: {}, filter_journal_ids: [], filter_prompt: ''}});
     }
     if (model.adminOffline) return route.fulfill({status: 503, json: {error: 'Management unavailable'}});
-    return route.fulfill({json: {journals, llm: {}, job: model.job || {status: 'idle'}, filter_journal_ids: [], filter_prompt: ''}});
+    return route.fulfill({json: {journals, llm: {}, job: model.job || {status: 'idle'}, filter_journal_ids: [], filter_prompt: '', excluded_count: model.excludedCount || 0}});
   });
   await page.route('**/api/archive', async route => {
     if (route.request().method() === 'GET') {
@@ -68,10 +68,11 @@ async function stub(page, model, {failedDate = false} = {}) {
       return route.fulfill({json: model.saved});
     }
     const payload = route.request().postDataJSON(); model.posts.push(payload);
-    if (model.holdBatches) await new Promise(resolve => {model.releaseBatch = resolve; model.blockedBatch = model.posts.length;});
+    if (model.holdBatches || model.holdSingle) await new Promise(resolve => {model.releaseBatch = resolve; model.blockedBatch = model.posts.length;});
     if (model.failSecond && model.posts.length === 2) return route.fulfill({status: 500, json: {error: 'Simulated batch failure'}});
     if (payload.action === 'add') for (const article of payload.items) model.saved.items[article.id] = article;
     if (payload.action === 'remove') for (const id of payload.ids) delete model.saved.items[id];
+    if (payload.action === 'favorite') for (const article of payload.items) model.saved.favorites[article.id] = article;
     if (payload.action === 'unfavorite') for (const id of payload.ids) delete model.saved.favorites[id];
     return route.fulfill({json: {updated_at: new Date().toISOString()}});
   });
@@ -82,13 +83,14 @@ async function stub(page, model, {failedDate = false} = {}) {
   try {
     const page = await browser.newPage({viewport: {width: 1440, height: 1000}});
     const errors = []; page.on('pageerror', error => errors.push(error.message));
-    const model = {saved: fixture(), posts: [], failSecond: false, legacySupplementReads: 0}; await stub(page, model);
+    const model = {saved: fixture(), posts: [], failSecond: false, legacySupplementReads: 0, excludedCount: 7}; await stub(page, model);
     await page.goto(`${baseURL}?mode=pending&date=2026-07-20&journals=`); await ready(page);
     await page.locator('#settings-button').click();
     assert.deepEqual(await page.locator('#settings-dialog .settings-section h3').allTextContents().then(values => values.map(value => value.trim())), ['Appearance', 'Model', 'AI title filter']);
     assert.equal(await page.locator('[id*="gist"],[id^="github-"]').count(), 0);
     await page.locator('#llm-model').fill('unsaved-test-model');
     await page.locator('#llm-api-key').fill('unsaved-test-key');
+    assert.equal(await page.locator('#filter-excluded-count').innerText(), 'Filtered out in the current window · 7 titles');
     for (const width of [320, 1440]) {
       await page.setViewportSize({width, height: 844});
       for (const theme of ['light', 'dark']) {
@@ -214,6 +216,24 @@ async function stub(page, model, {failedDate = false} = {}) {
     await page.reload(); await ready(page);
     assert.equal(await page.locator('#results-summary').innerText(), '0 favorites');
     console.log('Favorites: no categories, legacy routes migrated, independent archive state preserved.');
+    model.saved = fixture(); model.posts = []; model.holdSingle = true;
+    await page.goto(baseURL); await ready(page);
+    await page.locator('[data-favorite]').first().click();
+    await waitUntil(() => model.blockedBatch === 1);
+    assert(await page.locator('#save-status').isVisible());
+    assert.match(await page.locator('#save-count').innerText(), /0 \/ 1 paper confirmed/);
+    const unload = await page.evaluate(() => {
+      const event = new Event('beforeunload', {cancelable: true});
+      window.dispatchEvent(event);
+      return {cancelled: event.defaultPrevented, busy: document.querySelector('#save-status').hidden === false};
+    });
+    assert.deepEqual(unload, {cancelled: true, busy: true});
+    model.releaseBatch(); model.holdSingle = false;
+    await page.waitForFunction(() => document.querySelector('#save-status').hidden);
+    assert.equal(await page.locator('#save-status').isHidden(), true);
+    assert.equal(Object.keys(model.saved.favorites).length, 2);
+    console.log('Single favorite: visible save state and beforeunload protection while pending.');
+    await page.locator('[data-view="favorites"]').click();
     model.saved.favorites = Object.fromEntries([
       {id: 'older', date: dates[0], favorited_at: '2026-10-21T00:00:00Z'},
       {id: 'undated', favorited_at: '2026-10-22T00:00:00Z'},

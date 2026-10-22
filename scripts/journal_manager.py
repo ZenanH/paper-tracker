@@ -290,16 +290,15 @@ def start_job(kind: str, callback: Callable[[], Any]) -> None:
 
 def next_run(now: datetime | None = None) -> datetime:
     current = (now or datetime.now(BEIJING)).astimezone(BEIJING)
-    for hour in (1, 13):
-        candidate = current.replace(hour=hour, minute=0, second=0, microsecond=0)
-        if candidate > current:
-            return candidate
-    return (current + timedelta(days=1)).replace(hour=1, minute=0, second=0, microsecond=0)
+    candidate = current.replace(hour=1, minute=0, second=0, microsecond=0)
+    return candidate if candidate > current else candidate + timedelta(days=1)
 
 
 def daily_catchup_due(now: datetime | None = None) -> bool:
     current = (now or datetime.now(BEIJING)).astimezone(BEIJING)
-    expected = next_run(current) - timedelta(hours=12)
+    expected = current.replace(hour=1, minute=0, second=0, microsecond=0)
+    if current < expected:
+        return False
     manifest = read_json(DATA_DIR / "manifest.json", {})
     actual = manifest.get("collection_checked_at")
     try:
@@ -357,8 +356,8 @@ def journal_payload() -> dict[str, Any]:
         "llm": public_llm_settings(),
         "job": {**job, "next_run": next_run().isoformat()},
         "timezone": "Asia/Shanghai",
-        "schedule": "01:00, 13:00",
-        "update_interval_hours": 12,
+        "schedule": "01:00",
+        "update_interval_hours": 24,
     }
 
 

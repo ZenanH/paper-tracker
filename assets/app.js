@@ -270,7 +270,10 @@ function renderSaveProgress() {
     $('save-label').textContent = progress.phase === 'checking' ? 'Checking saved papers…' : ({
       add: 'Archiving papers…',
       favorite: 'Saving favorites…',
-      unfavorite: 'Removing favorites…'
+      unfavorite: 'Removing favorites…',
+      remove: 'Marking papers unread…',
+      clear: 'Hiding archived papers…',
+      restore_cleared: 'Restoring archived papers…'
     })[progress.action] || 'Saving changes…';
     $('save-count').textContent = `${countFormatter.format(progress.confirmed)} / ${countLabel(progress.total, 'paper')} confirmed`;
     $('save-progress').setAttribute('aria-valuemax', progress.total);
@@ -517,10 +520,10 @@ async function mutateArchive(action, records) {
   const snapshot = state.archive;
   state.archiveRevision++;
   state.busy = true;
-  state.saveProgress = action === 'add' || records.length > 1 ? {
+  state.saveProgress = {
     action, total: records.length, confirmed: 0, batch: 1,
     batches: Math.ceil(records.length / 128), phase: 'saving', slow: false
-  } : null;
+  };
   let waitTimer;
   applyArchiveLocally(action, records);
   state.selection.clear();
@@ -657,6 +660,7 @@ function renderAdmin() {
     state.prompt = a?.filter_prompt || '';
   }
   $('rules-summary').textContent = state.prompt ? 'Custom rules' : 'Default rules';
+  $('filter-excluded-count').textContent = `Filtered out in the current window · ${countLabel(Number(a?.excluded_count || 0), 'title')}`;
   $('filter-summary').textContent = `Journals · ${state.filterIds.size}/${state.journals.length}`;
   // Preserve focus and open controls while polling; list changes only when its data changes.
   const filterSignature = JSON.stringify([state.journals.map(j => j.id), [...state.filterIds], Boolean(a), running, state.adminBusy]);

@@ -203,7 +203,7 @@ class JournalManagementTests(unittest.TestCase):
             )
             self.assertEqual(set(excluded["entries"]), {"keep-filtered"})
 
-    def test_next_run_is_every_twelve_hours_beijing(self):
+    def test_next_run_is_daily_at_one_am_beijing(self):
         timezone = ZoneInfo("Asia/Shanghai")
         before = datetime(2026, 9, 19, 0, 30, tzinfo=timezone)
         after = datetime(2026, 9, 19, 1, 30, tzinfo=timezone)
@@ -213,9 +213,11 @@ class JournalManagementTests(unittest.TestCase):
         )
         self.assertEqual(
             journal_manager.next_run(after),
-            datetime(2026, 9, 19, 13, 0, tzinfo=timezone),
+            datetime(2026, 9, 20, 1, 0, tzinfo=timezone),
         )
         self.assertEqual(journal_manager.next_run(after.replace(hour=13)), datetime(2026, 9, 20, 1, 0, tzinfo=timezone))
+        self.assertEqual(journal_manager.next_run(after.replace(hour=1)), datetime(2026, 9, 20, 1, 0, tzinfo=timezone))
+        self.assertEqual(journal_manager.next_run(datetime(2026, 9, 19, 0, 0, tzinfo=timezone)), datetime(2026, 9, 19, 1, 0, tzinfo=timezone))
 
     def test_add_pipeline_runs_complete_targeted_workflow(self):
         with patch.object(journal_manager, "run_command") as run_command, patch.object(
@@ -329,18 +331,22 @@ class JournalManagementTests(unittest.TestCase):
 
     def test_daily_catchup_detects_stale_manifest(self):
         timezone = ZoneInfo("Asia/Shanghai")
+        before_schedule = datetime(2026, 9, 19, 0, 59, tzinfo=timezone)
         now = datetime(2026, 9, 19, 2, 0, tzinfo=timezone)
         with tempfile.TemporaryDirectory() as directory:
             data_dir = Path(directory)
             path = data_dir / "manifest.json"
             path.write_text(json.dumps({"default_date": "2026-09-17"}), encoding="utf-8")
             with patch.object(journal_manager, "DATA_DIR", data_dir):
+                self.assertFalse(journal_manager.daily_catchup_due(before_schedule))
                 self.assertTrue(journal_manager.daily_catchup_due(now))
                 path.write_text(json.dumps({"default_date": "2026-09-19", "collection_checked_at": "2026-09-19T01:10:00+08:00"}), encoding="utf-8")
                 self.assertFalse(journal_manager.daily_catchup_due(now))
-                self.assertTrue(journal_manager.daily_catchup_due(now.replace(hour=14)))
-                path.write_text(json.dumps({"collection_checked_at": "2026-09-19T05:10:00Z"}), encoding="utf-8")
                 self.assertFalse(journal_manager.daily_catchup_due(now.replace(hour=14)))
+                tomorrow = datetime(2026, 9, 20, 2, 0, tzinfo=timezone)
+                self.assertTrue(journal_manager.daily_catchup_due(tomorrow))
+                path.write_text(json.dumps({"collection_checked_at": "2026-09-20T00:10:00Z"}), encoding="utf-8")
+                self.assertFalse(journal_manager.daily_catchup_due(tomorrow))
 
     def test_weekly_reconciliation_due_uses_persistent_date(self):
         with tempfile.TemporaryDirectory() as directory:
