@@ -20,6 +20,7 @@ BEIJING = ZoneInfo("Asia/Shanghai")
 # earlier versions; translation caches pass their engine explicitly.
 TITLE_KEY_NAMESPACE = "facebook/nllb-200-distilled-600M"
 TITLE_FILTER_RULE_VERSION = "2026-09-19.1"
+RETENTION_FLOOR = date(2026, 10, 1)
 
 
 def update_collection_detail(**detail: Any) -> None:
@@ -84,7 +85,8 @@ def subtract_months(value: date, count: int) -> date:
 
 
 def retention_start(reference: date) -> date:
-    return subtract_months(reference, 3)
+    calculated = subtract_months(reference, 3)
+    return max(calculated, RETENTION_FLOOR) if reference >= RETENTION_FLOOR else calculated
 
 
 def normalize_doi(value: str | None) -> str:

@@ -194,6 +194,53 @@ class PipelineTests(unittest.TestCase):
             self.assertTrue(article["date_inferred"])
             self.assertEqual(article["raw_publication_date"], value)
 
+    def test_old_partial_source_period_is_excluded_from_current_window(self):
+        cutoff = date(2026, 10, 1)
+        old_month = article_from_item({"title": ["Old month"], "published": {"date-parts": [[1984, 12]]}}, JOURNAL, "2026-10-23T10:00:00+08:00")
+        old_year = article_from_item({"title": ["Old year"], "published": {"date-parts": [[2025]]}}, JOURNAL, "2026-10-23T10:00:00+08:00")
+        recent_month = article_from_item({"title": ["Recent month"], "published": {"date-parts": [[2026, 10]]}}, JOURNAL, "2026-10-23T10:00:00+08:00")
+        missing = article_from_item({"title": ["Missing date"]}, JOURNAL, "2026-10-23T10:00:00+08:00")
+        self.assertTrue(collect.source_period_before_window(old_month, cutoff))
+        self.assertTrue(collect.source_period_before_window(old_year, cutoff))
+        self.assertFalse(collect.source_period_before_window(recent_month, cutoff))
+        self.assertFalse(collect.source_period_before_window(missing, cutoff))
+
+    def test_collection_removes_old_partial_index_records_but_keeps_recent_records(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            days = self.prepare_collection_data(root)
+            old = self.article("2026-10-01")
+            old.update({"id": "10.1000/old-index", "doi": "10.1000/old-index",
+                        "date_precision": "month", "date_source": "published",
+                        "raw_publication_date": {"date-parts": [[1984, 12]]},
+                        "date_inferred": True, "date_inference": "current-month-start"})
+            (days / "2026-10-01.json").write_text(json.dumps({"articles": [old]}))
+            items = [
+                {"DOI": "10.1000/old-index", "title": [old["title_en"]],
+                 "published": {"date-parts": [[1984, 12]]}, "type": "journal-article"},
+                {"DOI": "10.1000/recent", "title": ["Recent month-only paper"],
+                 "published": {"date-parts": [[2026, 10]]}, "type": "journal-article"},
+            ]
+            self.run_collection(root, items, target=date(2026, 10, 23))
+            saved = json.loads((days / "2026-10-01.json").read_text())["articles"]
+            self.assertEqual([article["id"] for article in saved], ["10.1000/recent"])
+
+    def test_purge_old_partial_records_removes_legacy_inferred_records(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            days = self.prepare_collection_data(root)
+            old = self.article("2026-10-01")
+            old.update({"date_precision": "month", "raw_publication_date": {"date-parts": [[1984, 12]]}})
+            recent = self.article("2026-10-01")
+            recent.update({"id": "10.1000/recent", "doi": "10.1000/recent", "date_precision": "month", "raw_publication_date": {"date-parts": [[2026, 10]]}})
+            (days / "2026-10-01.json").write_text(json.dumps({"articles": [old, recent]}))
+            with patch.object(collect, "DAYS_DIR", days), patch.object(
+                collect, "iter_day_files", return_value=[days / "2026-10-01.json"]
+            ):
+                self.assertEqual(collect.purge_old_partial_records(date(2026, 10, 1)), 1)
+            saved = json.loads((days / "2026-10-01.json").read_text())["articles"]
+            self.assertEqual([a["id"] for a in saved], ["10.1000/recent"])
+
     def test_inferred_date_stays_stable_then_moves_to_confirmed_date(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -202,14 +249,10 @@ class PipelineTests(unittest.TestCase):
             self.run_collection(root, [item])
             self.run_collection(root, [item], target=date(2026, 10, 18))
             self.assertFalse((days / "2026-10-01.json").exists())
-            prior = json.loads((days / "2026-09-01.json").read_text())["articles"][0]
-            self.assertEqual(prior["first_discovered_at"], "2026-09-18T13:00:00+08:00")
+            self.assertFalse((days / "2026-09-01.json").exists())
             item["published-online"] = {"date-parts": [[2026, 9, 16]]}
             self.run_collection(root, [item], target=date(2026, 10, 18))
-            self.assertEqual(json.loads((days / "2026-09-01.json").read_text())["articles"], [])
-            confirmed = json.loads((days / "2026-09-16.json").read_text())["articles"][0]
-            self.assertFalse(confirmed.get("date_inferred", False))
-            self.assertEqual(confirmed["first_discovered_at"], prior["first_discovered_at"])
+            self.assertFalse((days / "2026-09-16.json").exists())
 
     def test_legacy_migration_preserves_translation_and_is_idempotent(self):
         with tempfile.TemporaryDirectory() as directory:

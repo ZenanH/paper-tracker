@@ -182,7 +182,7 @@ def daily_pipeline() -> None:
     run_command(["python3", "scripts/collect.py", "--mode", "daily"])
     if llm_is_configured():
         set_job(stage="translate")
-    run_translation(2000)
+    run_translation(10000)
     if metrics_due():
         set_job(stage="metrics")
         run_command(["python3", "scripts/update_metrics.py"])
@@ -196,7 +196,7 @@ def backfill_pipeline(journal_ids: list[str] | None = None) -> None:
         if journal_id:
             command.extend(["--journal-id", journal_id])
         run_command(command)
-    run_translation(2000)
+    run_translation(10000)
     run_command(["python3", "scripts/validate_data.py"])
 
 
@@ -207,7 +207,7 @@ def add_pipeline(journal_id: str) -> None:
     run_command(
         ["python3", "scripts/collect.py", "--mode", "backfill", "--journal-id", journal_id]
     )
-    run_translation(2000)
+    run_translation(10000)
     run_command(["python3", "scripts/validate_data.py"])
 
 
@@ -218,7 +218,7 @@ def run_translation(limit: int) -> bool:
     run_command(
         [
             "python3", "scripts/translate.py", "--limit", str(limit),
-            "--batch-size", "8", "--workers", "2",
+            "--batch-size", "8", "--workers", "4",
         ]
     )
     return True
@@ -232,7 +232,7 @@ def restore_filtered_pipeline(filter_ids: list[str]) -> None:
     )
     refresh_manifest()
     if restored_count:
-        run_translation(2000)
+        run_translation(10000)
     run_command(["python3", "scripts/validate_data.py"])
 
 

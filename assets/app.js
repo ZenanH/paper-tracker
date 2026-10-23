@@ -131,6 +131,7 @@ function englishMessage(value, fallback) {
   return typeof value === 'string' && value.trim() && !/\p{Script=Han}/u.test(value) ? value : fallback;
 }
 let noticeTimer;
+let noticeFadeTimer;
 let stickyFrame = null;
 
 function updateStickyOffsets() {
@@ -151,11 +152,31 @@ function updateStickyOffsets() {
 }
 
 function notify(message, error = false) {
-  $('notice').hidden = false;
-  $('notice').textContent = message;
-  $('notice').classList.toggle('error', error);
+  const notice = $('notice');
   clearTimeout(noticeTimer);
-  if (!error) noticeTimer = setTimeout(() => $('notice').hidden = true, 5000);
+  clearTimeout(noticeFadeTimer);
+  notice.hidden = false;
+  notice.textContent = message;
+  notice.classList.remove('error', 'is-leaving', 'notice-progress', 'glass');
+  notice.classList.toggle('error', error);
+  noticeTimer = setTimeout(() => {
+    notice.classList.add('is-leaving');
+    noticeFadeTimer = setTimeout(() => {
+      notice.hidden = true;
+      notice.classList.remove('is-leaving');
+    }, 4100);
+  }, 3000);
+}
+
+function showProgressNotice(title, detail, progress = null, count = '') {
+  const notice = $('notice');
+  clearTimeout(noticeTimer);
+  clearTimeout(noticeFadeTimer);
+  notice.hidden = false;
+  notice.classList.remove('error', 'is-leaving');
+  notice.classList.add('notice-progress', 'glass');
+  const bar = progress ? `<div class="notice-track" role="progressbar" aria-label="${escape(progress.label || 'Task progress')}" aria-valuemin="0" aria-valuemax="${progress.max}" aria-valuenow="${progress.value}"><span style="transform:scaleX(${progress.value / progress.max})"></span></div>` : '<div class="notice-track is-indeterminate" role="progressbar" aria-label="Task in progress"><span></span></div>';
+  notice.innerHTML = `<div class="notice-heading"><strong>${escape(title)}</strong>${count ? `<span>${escape(count)}</span>` : ''}</div>${bar}${detail ? `<div class="notice-detail">${escape(detail)}</div>` : ''}`;
 }
 
 function inline(id, message, error = false) {
@@ -269,7 +290,7 @@ function renderCounts() {
 
 function renderSaveProgress() {
   const progress = state.saveProgress;
-  $('save-status').hidden = !progress;
+  $('save-status').hidden = true;
   if (progress) {
     $('save-label').textContent = progress.phase === 'checking' ? 'Checking saved papers…' : ({
       add: 'Archiving papers…',
@@ -284,6 +305,8 @@ function renderSaveProgress() {
       'Checking the server. Keep this page open.' : progress.slow ?
       `Slow connection · Batch ${progress.batch} of ${progress.batches}. Keep this page open.` :
       `Batch ${progress.batch} of ${progress.batches} · Keep this page open.`;
+    showProgressNotice($('save-label').textContent, $('save-detail').textContent,
+      {label: 'Papers confirmed by the server', value: progress.confirmed, max: progress.total}, $('save-count').textContent);
   }
   updateStickyOffsets();
 }
@@ -407,6 +430,26 @@ function switchView(view) {
 }
 
 function renderUpdate() {
+  const job = state.admin?.job;
+  const running = job?.status === 'running';
+  const paperUpdate = running && ['manual', 'daily', 'daily-catchup', 'backfill'].includes(job.kind);
+  const progress = paperUpdate ? job.collection_progress : null;
+  const completed = Number(progress?.completed || 0);
+  const total = Number(progress?.total ?? state.journals.length);
+  const currentFailed = Number(progress?.failed || 0);
+  const detail = job?.stage === 'collect' ? progress?.detail : null;
+  const collectionStage = detail?.phase === 'fetch' ? `Fetching ${progress?.current_journal || 'journal'} · page ${Number(detail.page)} · ${countFormatter.format(Number(detail.records_received))} records received` :
+    detail?.phase === 'filter' ? `Filtering ${progress?.current_journal || 'journal'} titles · ${Number(detail.completed)}/${Number(detail.total)} checked` : '';
+  const paperStage = ({collect: 'Refreshing papers…', translate: 'Translating titles…', metrics: 'Updating IF…', validate: 'Checking paper data…'})[job?.stage];
+  if (state.refreshStarting) {
+    showProgressNotice('Starting paper refresh…', 'Checking all followed journals');
+  } else if (paperUpdate) {
+    const determinate = job.stage === 'collect' && total > 0;
+    const count = determinate ? `${completed}/${total} journals checked${currentFailed ? ` · ${currentFailed} failed` : ''}` : '';
+    const noticeDetail = collectionStage || (job.stage === 'collect' && progress?.current_journal ? `Checking ${progress.current_journal}` : job.stage === 'translate' ? 'Translating new and pending paper titles' : job.stage === 'metrics' ? 'Checking journal impact factors' : 'Validating the updated paper data');
+    showProgressNotice(collectionStage || paperStage || 'Refreshing papers…', noticeDetail,
+      determinate ? {label: 'Journals checked', value: completed, max: total} : null, count);
+  }
   const m = state.manifest;
   if (!m) return;
   const s = m.collection_summary || {},
@@ -424,25 +467,14 @@ function renderUpdate() {
   const expected = now < one ? one - 24 * 60 * 60 * 1000 : one;
   const checked = Date.parse(m.collection_checked_at || m.updated_at || '');
   const stale = !Number.isFinite(checked) || checked < expected;
-  const job = state.admin?.job;
-  const running = job?.status === 'running';
-  const paperUpdate = running && ['manual', 'daily', 'daily-catchup', 'backfill'].includes(job.kind);
-  const progress = paperUpdate ? job.collection_progress : null;
-  const completed = Number(progress?.completed || 0);
-  const total = Number(progress?.total ?? state.journals.length);
-  const currentFailed = Number(progress?.failed || 0);
-  const journalSummary = paperUpdate ? `${completed}/${total} journals checked` : `${ok}/${ok + failed} journals`;
-  const displayedFailed = paperUpdate ? currentFailed : failed;
+  const journalSummary = `${ok}/${ok + failed} journals`;
+  const displayedFailed = failed;
   const task = ({metrics: 'IF update', add: 'Journal setup', delete: 'Unfollow', 'restore-filtered': 'Paper restore'})[job?.kind] || 'Paper update';
-  const paperStage = ['manual', 'daily', 'daily-catchup', 'backfill'].includes(job?.kind) && ({collect: 'Collecting and filtering papers…', translate: 'Translating titles…', metrics: 'Updating IF…', validate: 'Checking papers…'})[job?.stage];
-  const detail = job?.stage === 'collect' ? progress?.detail : null;
-  const collectionStage = detail?.phase === 'fetch' ? `Fetching records · page ${Number(detail.page)} · ${countFormatter.format(Number(detail.records_received))} received` :
-    detail?.phase === 'filter' ? `Filtering titles · ${Number(detail.completed)}/${Number(detail.total)} checked${detail.failed_open ? ` · ${Number(detail.failed_open)} kept after API failure` : ''}` : '';
   const active = collectionStage || paperStage || ({metrics: 'Updating IF…', add: 'Adding journal…', delete: 'Unfollowing journal…', 'restore-filtered': 'Restoring papers…'})[job?.kind] || 'Updating papers…';
   const jobMessage = running ? active : job?.status === 'failed' ? `${task} failed` : job?.status === 'interrupted' ? `${task} interrupted` : state.adminLoaded && !state.admin ? 'Management offline' : '';
   const jobMarkup = jobMessage ? `<span class="job-status${running ? '' : ' failure'}">${running ? '<span class="saving-spinner" aria-hidden="true"></span>' : ''}${escape(jobMessage)}</span>` : '';
   $('update-status').title = `Collection: ${m.default_date} · Updated: ${time(m.updated_at)}`;
-  $('update-status').innerHTML = `<span class="status-dot${displayedFailed||stale?' is-warning':''}" aria-hidden="true"></span><time datetime="${escape(m.updated_at || '')}">Updated ${escape(compactTime(m.updated_at))}</time><span>${journalSummary}</span>${!paperUpdate&&ok+failed===0?'<span>Not collected</span>':''}${stale&&!jobMessage?'<span class="failure">Delayed</span>':''}${displayedFailed?`<span class="failure">${displayedFailed} failed</span>`:''}${jobMarkup}`;
+  $('update-status').innerHTML = `<span class="status-dot${displayedFailed||stale?' is-warning':''}" aria-hidden="true"></span><time datetime="${escape(m.updated_at || '')}">Updated ${escape(compactTime(m.updated_at))}</time><span>${journalSummary}</span>${ok+failed===0?'<span>Not collected</span>':''}${stale&&!jobMessage?'<span class="failure">Delayed</span>':''}${displayedFailed?`<span class="failure">${displayedFailed} failed</span>`:''}${paperUpdate?'':jobMarkup}`;
 }
 async function loadMetadata() {
   const [manifest, journalData] = await Promise.all([request('data/manifest.json'), request('data/journals.json')]);
@@ -469,7 +501,17 @@ async function loadWindow() {
     while (cursor < dates.length) {
       const date = dates[cursor++];
       try {
-        const day = state.dayCache.get(date) || await request(`data/days/${date}.json`);
+        let day = state.dayCache.get(date);
+        let lastError;
+        for (let attempt = 0; !day && attempt < 3; attempt++) {
+          try {
+            day = await request(`data/days/${date}.json`, {timeout: 30000});
+          } catch (error) {
+            lastError = error;
+            if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 300 * (attempt + 1)));
+          }
+        }
+        if (!day) throw lastError || new Error('Date file unavailable');
         if (generation !== windowRequest) return;
         state.dayCache.set(date, day);
         for (const a of day.articles || []) {
@@ -737,7 +779,7 @@ async function startJob(path, payload = {}) {
     state.admin = await adminRequest(path, payload);
     state.refreshAfterJob = true;
     renderAdmin();
-    notify('Update started');
+    if (path !== '/run') notify('Update started');
     clearTimeout(state.poll);
     state.poll = setTimeout(loadAdmin, 1500);
     return true;

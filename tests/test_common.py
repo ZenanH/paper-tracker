@@ -12,6 +12,8 @@ class CommonTests(unittest.TestCase):
     def test_calendar_month_retention(self):
         self.assertEqual(subtract_months(date(2026, 5, 31), 3), date(2026, 2, 28))
         self.assertEqual(retention_start(date(2026, 9, 16)), date(2026, 6, 16))
+        self.assertEqual(retention_start(date(2026, 10, 23)), date(2026, 10, 1))
+        self.assertEqual(retention_start(date(2026, 11, 23)), date(2026, 10, 1))
 
     def test_doi_normalization_and_key(self):
         self.assertEqual(normalize_doi("https://doi.org/10.1000/ABC"), "10.1000/abc")

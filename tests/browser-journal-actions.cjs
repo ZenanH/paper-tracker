@@ -47,6 +47,10 @@ async function stub(page, model, {failedDate = false} = {}) {
     if (date && failedDate && date === dates[2]) return route.fulfill({status: 503, json: {error: 'Offline day'}});
     if (date && days[date]) {
       model.dateReads = (model.dateReads || 0) + 1;
+      if (date === model.transientFailureDate && !model.transientFailureRecovered) {
+        model.transientFailureRecovered = true;
+        return route.fulfill({status: 503, json: {error: 'Transient date read failure'}});
+      }
       return route.fulfill({json: {articles: [...days[date].articles, ...(model.newPaper && date === dates[2] ? [model.newPaper] : [])]}});
     }
     return route.fulfill({status: 404, json: {error: 'Unknown test data'}});
@@ -90,8 +94,11 @@ async function stub(page, model, {failedDate = false} = {}) {
   try {
     const page = await browser.newPage({viewport: {width: 1440, height: 1000}});
     const errors = []; page.on('pageerror', error => errors.push(error.message));
-    const model = {saved: fixture(), posts: [], failSecond: false, legacySupplementReads: 0, excludedCount: 7}; await stub(page, model);
+    const model = {saved: fixture(), posts: [], failSecond: false, legacySupplementReads: 0, excludedCount: 7,
+      transientFailureDate: dates[2]}; await stub(page, model);
     await page.goto(`${baseURL}?mode=pending&date=2026-07-20&journals=`); await ready(page);
+    assert(model.transientFailureRecovered);
+    assert.equal(await page.locator('#load-status').isVisible(), false);
     await page.locator('#settings-button').click();
     assert.deepEqual(await page.locator('#settings-dialog .settings-section h3').allTextContents().then(values => values.map(value => value.trim())), ['Appearance', 'Model', 'AI title filter']);
     assert.equal(await page.locator('[id*="gist"],[id^="github-"]').count(), 0);
@@ -173,41 +180,48 @@ async function stub(page, model, {failedDate = false} = {}) {
     assert.equal(Number((await page.locator('[data-archive-journal="alpha"]').innerText()).replace(/\D/g, '')), total);
     model.holdBatches = true;
     await page.locator('[data-archive-journal="alpha"]').click();
-    await page.waitForFunction(() => document.querySelector('#save-progress').getAttribute('aria-valuenow') === '0');
-    assert(await page.locator('#save-status').isVisible());
-    assert.match(await page.locator('#save-count').innerText(), new RegExp(`0 / ${total} papers confirmed`));
+    await page.waitForFunction(() => document.querySelector('#notice .notice-track')?.getAttribute('aria-valuenow') === '0');
+    assert(await page.locator('#notice.notice-progress').isVisible());
+    assert.equal(await page.locator('#save-status').evaluate(el => el.getBoundingClientRect().height), 0);
+    assert(await page.locator('#notice .notice-track[role="progressbar"]').isVisible());
+    assert.match(await page.locator('#notice .notice-heading span').innerText(), new RegExp(`0 / ${total} papers confirmed`));
     assert(await page.locator('[data-archive-journal="beta"]').isDisabled());
-    assert.equal(await page.locator('#save-status .saving-spinner').evaluate(node => getComputedStyle(node).animationName), 'saving-spin');
-    await page.waitForFunction(() => document.querySelector('#save-detail').textContent.includes('Slow connection'), null, {timeout: 12000});
-    assert.equal(await page.locator('#save-progress').getAttribute('aria-valuenow'), '0');
+    await page.waitForFunction(() => document.querySelector('#notice .notice-detail').textContent.includes('Slow connection'), null, {timeout: 12000});
+    assert.equal(await page.locator('#notice .notice-track').getAttribute('aria-valuenow'), '0');
+    await page.waitForTimeout(3200);
+    assert(await page.locator('#notice.notice-progress').isVisible(), 'Long save notice stays visible until completion');
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({width, height: 844});
       await page.evaluate(() => {const section = document.querySelector('.journal-section'); scrollTo(0, section.getBoundingClientRect().top + scrollY + 700);});
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       const layout = await page.locator('.journal-header').first().evaluate(header => ({
         top: header.getBoundingClientRect().top,
-        progressBottom: document.querySelector('#save-status').getBoundingClientRect().bottom,
+        progressBottom: document.querySelector('#selection-bar').getBoundingClientRect().top,
         overflow: document.documentElement.scrollWidth > innerWidth
       }));
       assert(!layout.overflow); assert(layout.top >= layout.progressBottom);
     }
     await page.emulateMedia({reducedMotion: 'reduce'});
-    assert.equal(await page.locator('#save-status .saving-spinner').evaluate(node => getComputedStyle(node).animationName), 'none');
     await page.emulateMedia({reducedMotion: 'no-preference'});
     await page.locator('[data-view="favorites"]').click();
-    assert(await page.locator('#save-status').isVisible());
+    assert(await page.locator('#notice.notice-progress').isVisible());
     await page.locator('[data-view="papers"]').click();
     for (const [batch, confirmed] of [[1, 0], [2, 128], [3, 256]]) {
-      await page.waitForFunction(value => document.querySelector('#save-progress').getAttribute('aria-valuenow') === String(value), confirmed);
+      await page.waitForFunction(value => document.querySelector('#notice .notice-track')?.getAttribute('aria-valuenow') === String(value), confirmed);
       await waitUntil(() => model.blockedBatch === batch);
       assert.equal(model.blockedBatch, batch);
-      assert.match(await page.locator('#save-detail').innerText(), new RegExp(`batch ${batch} of 3`, 'i'));
+      assert.match(await page.locator('#notice .notice-detail').innerText(), new RegExp(`batch ${batch} of 3`, 'i'));
       model.releaseBatch();
     }
     await ready(page);
     model.holdBatches = false;
-    assert(await page.locator('#save-status').isHidden());
+    assert(await page.locator('#notice.notice-progress').isHidden());
     assert.match(await page.locator('#notice').innerText(), new RegExp(`Archived ${total} papers`));
+    await page.waitForFunction(() => document.querySelector('#notice').classList.contains('is-leaving'), null, {timeout: 4500});
+    assert(await page.locator('#notice').evaluate(el => getComputedStyle(el).transitionDuration.split(',').map(value => value.trim()).includes('4s')));
+    await page.waitForTimeout(4200);
+    console.log('Toast after completion fade:', await page.locator('#notice').evaluate(el => ({hidden: el.hidden, className: el.className, text: el.textContent, opacity: getComputedStyle(el).opacity})));
+    assert(await page.locator('#notice').isHidden(), 'Completed save notice fades away after the four-second fade');
     console.log('Save feedback: slow connection, confirmed batch counts, persistent across views, reduced motion, no header overlap.');
     assert.equal(model.posts.reduce((n, post) => n + post.items.length, 0), total);
     assert(model.posts.length > 1); assert.equal(Object.keys(model.saved.favorites).length, 1);
@@ -244,18 +258,23 @@ async function stub(page, model, {failedDate = false} = {}) {
     await page.goto(baseURL); await ready(page);
     await page.locator('[data-favorite]').first().click();
     await waitUntil(() => model.blockedBatch === 1);
-    assert(await page.locator('#save-status').isVisible());
-    assert.match(await page.locator('#save-count').innerText(), /0 \/ 1 paper confirmed/);
+    assert(await page.locator('#notice.notice-progress').isVisible());
+    assert.match(await page.locator('#notice .notice-heading span').innerText(), /0 \/ 1 paper confirmed/);
     const unload = await page.evaluate(() => {
       const event = new Event('beforeunload', {cancelable: true});
       window.dispatchEvent(event);
-      return {cancelled: event.defaultPrevented, busy: document.querySelector('#save-status').hidden === false};
+      return {cancelled: event.defaultPrevented, busy: document.querySelector('#notice').classList.contains('notice-progress')};
     });
     assert.deepEqual(unload, {cancelled: true, busy: true});
     model.releaseBatch(); model.holdSingle = false;
-    await page.waitForFunction(() => document.querySelector('#save-status').hidden);
-    assert.equal(await page.locator('#save-status').isHidden(), true);
+    await page.waitForFunction(() => !document.querySelector('#notice').classList.contains('notice-progress'));
     assert.equal(Object.keys(model.saved.favorites).length, 2);
+    await page.waitForTimeout(2000);
+    assert(await page.locator('#notice').isVisible(), 'Single favorite notice stays fully visible before the 3s minimum');
+    await page.waitForFunction(() => document.querySelector('#notice').classList.contains('is-leaving'), null, {timeout: 2000});
+    assert(await page.locator('#notice').evaluate(el => getComputedStyle(el).transitionDuration.split(',').map(value => value.trim()).includes('4s')));
+    await page.waitForTimeout(4200);
+    assert(await page.locator('#notice').isHidden());
     console.log('Single favorite: visible save state and beforeunload protection while pending.');
     await page.locator('[data-view="favorites"]').click();
     model.saved.favorites = Object.fromEntries([
@@ -283,9 +302,9 @@ async function stub(page, model, {failedDate = false} = {}) {
     console.log('All-journal search: English and Chinese match both journals; old URL filters and browser preferences ignored.');
     model.saved = fixture(); model.posts = []; model.failSecond = true; model.holdRecovery = true;
     await page.goto(baseURL); await ready(page); await page.locator('[data-archive-journal="alpha"]').click();
-    await page.waitForFunction(() => document.querySelector('#save-label').textContent === 'Checking saved papers…');
-    assert(await page.locator('#save-status').isVisible());
-    assert.equal(await page.locator('#save-progress').getAttribute('aria-valuenow'), '128');
+    await page.waitForFunction(() => document.querySelector('#notice .notice-heading strong')?.textContent === 'Checking saved papers…');
+    assert(await page.locator('#notice.notice-progress').isVisible());
+    assert.equal(await page.locator('#notice .notice-track').getAttribute('aria-valuenow'), '128');
     await waitUntil(() => Boolean(model.releaseRecovery));
     assert(model.releaseRecovery);
     model.releaseRecovery(); model.holdRecovery = false;
@@ -326,20 +345,22 @@ async function stub(page, model, {failedDate = false} = {}) {
     await refreshPage.waitForFunction(() => document.querySelector('#refresh-label').textContent === 'Refreshing…');
     assert.equal(await refresh.getAttribute('aria-busy'), 'true');
     assert(await refreshPage.locator('#refresh-spinner').isVisible());
-    assert.match(await refreshPage.locator('#update-status').innerText(), /Collecting and filtering papers/);
-    assert.match(await refreshPage.locator('#update-status').innerText(), /0\/2 journals checked/);
-    refreshModel.job.collection_progress = {completed: 1, total: 2, failed: 0};
-    await refreshPage.waitForFunction(() => document.querySelector('#update-status').textContent.includes('1/2 journals checked'));
+    assert(await refreshPage.locator('#notice.notice-progress').isVisible());
+    assert.match(await refreshPage.locator('#notice .notice-heading strong').innerText(), /Refreshing papers/);
+    assert.match(await refreshPage.locator('#notice .notice-heading span').innerText(), /0\/2 journals checked/);
+    refreshModel.job.collection_progress = {completed: 1, total: 2, failed: 0, current_journal: 'Next journal'};
+    await refreshPage.waitForFunction(() => document.querySelector('#notice .notice-heading span').textContent.includes('1/2 journals checked'));
     refreshModel.job.collection_progress.detail = {phase: 'fetch', page: 3, records_received: 1500};
-    await refreshPage.waitForFunction(() => document.querySelector('#update-status').textContent.includes('Fetching records · page 3 · 1,500 received'));
+    await refreshPage.waitForFunction(() => document.querySelector('#notice .notice-heading strong').textContent.includes('Fetching Next journal · page 3 · 1,500 records received'));
     refreshModel.job.collection_progress.detail = {phase: 'filter', completed: 64, total: 128, failed_open: 0};
-    await refreshPage.waitForFunction(() => document.querySelector('#update-status').textContent.includes('Filtering titles · 64/128 checked'));
-    assert.match(await refreshPage.locator('#update-status').innerText(), /1\/2 journals checked/);
+    await refreshPage.waitForFunction(() => document.querySelector('#notice .notice-heading strong').textContent.includes('Filtering Next journal titles · 64/128 checked'));
+    assert.match(await refreshPage.locator('#notice .notice-heading span').innerText(), /1\/2 journals checked/);
     refreshModel.job.collection_progress = {completed: 2, total: 2, failed: 1};
-    await refreshPage.waitForFunction(() => document.querySelector('#update-status').textContent.includes('2/2 journals checked') && document.querySelector('#update-status').textContent.includes('1 failed'));
+    refreshModel.job.collection_progress.current_journal = null;
+    await refreshPage.waitForFunction(() => document.querySelector('#notice .notice-heading span').textContent.includes('2/2 journals checked · 1 failed'));
     assert(await refresh.isDisabled());
     refreshModel.job.stage = 'translate';
-    await refreshPage.waitForFunction(() => document.querySelector('#update-status').textContent.includes('Translating titles'));
+    await refreshPage.waitForFunction(() => document.querySelector('#notice .notice-heading strong').textContent.includes('Translating titles'));
     for (const theme of ['light', 'dark']) for (const width of [320, 390, 768, 1440]) {
       await refreshPage.setViewportSize({width, height: 844});
       await refreshPage.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
@@ -348,15 +369,15 @@ async function stub(page, model, {failedDate = false} = {}) {
     }
     await refreshPage.locator('[data-view="favorites"]').click();
     assert(await refresh.isHidden());
-    assert(await refreshPage.locator('#update-status').isHidden());
+    assert(await refreshPage.locator('#notice.notice-progress').isVisible());
     assert.equal(await refreshPage.locator('.article-item').count(), 1);
     await refreshPage.locator('[data-view="journals"]').click();
     assert(await refresh.isHidden());
-    assert(await refreshPage.locator('#update-status').isHidden());
+    assert(await refreshPage.locator('#notice.notice-progress').isVisible());
     await refreshPage.locator('[data-view="papers"]').click();
     assert(await refresh.isVisible());
     assert(await refreshPage.locator('#update-status').isVisible());
-    assert.match(await refreshPage.locator('#update-status').innerText(), /Translating titles/);
+    assert.match(await refreshPage.locator('#notice .notice-heading strong').innerText(), /Translating titles/);
     const readsBefore = refreshModel.dateReads;
     refreshModel.newPaper = {id: 'alpha:2:-fresh', journal_id: 'alpha', published_date: dates[2],
       title_en: 'Fresh mechanics result', title_zh: '刚采集的新论文', translation_status: 'translated', url: 'https://example.com/fresh'};

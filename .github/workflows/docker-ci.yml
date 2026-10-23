@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
       - uses: actions/checkout@v7
@@ -61,12 +61,34 @@ jobs:
         run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
       - name: Validate Compose configuration
         run: docker compose config --quiet
+      - name: Advance application version
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: version
+        shell: bash
+        run: |
+          current="$(tr -d '[:space:]' < VERSION)"
+          major="${current%%.*}"
+          minor="${current##*.}"
+          next="${major}.$((minor + 1))"
+          printf '%s\n' "$next" > VERSION
+          echo "value=$next" >> "$GITHUB_OUTPUT"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add VERSION
+          git commit -m "chore: advance app version to v$next [skip ci]"
+          git push origin HEAD:main
+      - name: Read application version
+        id: app-version
+        shell: bash
+        run: echo "value=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
       - name: Build image for container tests
         uses: docker/build-push-action@v7
         with:
           context: .
           load: true
           tags: paper-tracker:ci
+          build-args: |
+            APP_VERSION=${{ steps.app-version.outputs.value }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Verify mounted JSON data and restart persistence
@@ -85,6 +107,7 @@ jobs:
           images: ${{ steps.image.outputs.name }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ steps.app-version.outputs.value }},enable={{is_default_branch}}
             type=sha
             type=ref,event=tag
       - name: Build multi-platform image
@@ -93,6 +116,8 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+          build-args: |
+            APP_VERSION=${{ steps.app-version.outputs.value }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

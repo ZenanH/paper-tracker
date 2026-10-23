@@ -18,8 +18,12 @@ RUN apt-get update \
 WORKDIR /app
 COPY assets/ ./assets/
 COPY index.html favicon.ico journal.json ./
+COPY VERSION ./VERSION
 COPY scripts/ ./scripts/
 COPY server/ ./server/
+
+ARG APP_VERSION=1.0
+RUN sed -i "s/__APP_VERSION__/${APP_VERSION}/g" index.html
 
 USER 1000:1000
 VOLUME ["/data"]

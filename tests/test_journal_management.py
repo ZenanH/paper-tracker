@@ -289,11 +289,11 @@ class JournalManagementTests(unittest.TestCase):
                     "python3",
                     "scripts/translate.py",
                     "--limit",
-                    "2000",
+                    "10000",
                     "--batch-size",
                     "8",
                     "--workers",
-                    "2",
+                    "4",
                 ],
                 ["python3", "scripts/validate_data.py"],
             ],
@@ -308,7 +308,7 @@ class JournalManagementTests(unittest.TestCase):
             journal_manager.daily_pipeline()
         self.assertEqual([call.args[0] for call in command.call_args_list], [
             ["python3", "scripts/collect.py", "--mode", "daily"],
-            ["python3", "scripts/translate.py", "--limit", "2000", "--batch-size", "8", "--workers", "2"],
+            ["python3", "scripts/translate.py", "--limit", "10000", "--batch-size", "8", "--workers", "4"],
             ["python3", "scripts/update_metrics.py"],
             ["python3", "scripts/validate_data.py"],
         ])

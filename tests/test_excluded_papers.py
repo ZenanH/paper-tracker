@@ -61,7 +61,12 @@ class ExcludedPaperTests(unittest.TestCase):
             excluded_papers.save_excluded_records(root, [record], date(2026, 9, 18))
             filter_id = article_key(record)
 
-            result = excluded_papers.restore_excluded_records(root, [filter_id])
+            with patch.object(
+                excluded_papers,
+                "now_beijing",
+                return_value=datetime(2026, 9, 18, 13, tzinfo=ZoneInfo("Asia/Shanghai")),
+            ):
+                result = excluded_papers.restore_excluded_records(root, [filter_id])
 
             day = json.loads((root / "days" / "2026-09-18.json").read_text(encoding="utf-8"))
             excluded = json.loads((root / "excluded-papers.json").read_text(encoding="utf-8"))

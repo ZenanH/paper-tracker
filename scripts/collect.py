@@ -18,6 +18,7 @@ from common import (
     BEIJING,
     DATA_DIR,
     DAYS_DIR,
+    RETENTION_FLOOR,
     article_key,
     clean_text,
     ensure_publication_date,
@@ -120,6 +121,47 @@ def publication_date(item: dict[str, Any]) -> tuple[str | None, str, str]:
         if partial is None and precision != "missing":
             partial = (None, precision, field)
     return partial or (None, "missing", "none")
+
+
+def source_period_before_window(article: dict[str, Any], cutoff: date) -> bool:
+    """Reject index-backfill records whose known partial publication period is old.
+
+    Crossref's index-date query can return decades-old records with only a
+    year/month. They must not be assigned to the current month and inflate the
+    active window merely because their index metadata changed recently.
+    Truly missing/invalid dates retain the existing current-month inference.
+    """
+    if cutoff < RETENTION_FLOOR:
+        return False
+    precision = article.get("date_precision")
+    raw = article.get("raw_publication_date")
+    if precision == "month" and isinstance(raw, dict):
+        try:
+            year, month = (int(value) for value in raw["date-parts"][0][:2])
+            return (year, month) < (cutoff.year, cutoff.month)
+        except (KeyError, IndexError, TypeError, ValueError):
+            return False
+    if precision == "year" and isinstance(raw, dict):
+        try:
+            year = int(raw["date-parts"][0][0])
+            return year < cutoff.year
+        except (KeyError, IndexError, TypeError, ValueError):
+            return False
+    return False
+
+
+def purge_old_partial_records(cutoff: date) -> int:
+    """Remove records that an earlier index-date run inferred into the window."""
+    removed = 0
+    for path in iter_day_files():
+        payload = read_json(path, {})
+        articles = payload.get("articles", [])
+        retained = [article for article in articles if not source_period_before_window(article, cutoff)]
+        if len(retained) == len(articles):
+            continue
+        removed += len(articles) - len(retained)
+        write_json(path, day_payload(path.stem, retained, payload.get("journal_status", {})))
+    return removed
 
 
 def classify_title(title: str) -> str:
@@ -339,6 +381,9 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
     failed = 0
     report_progress(0, len(journals), failed, None)
     migrate_legacy_records(now_beijing().date())
+    purged = purge_old_partial_records(retention_start(target))
+    if purged:
+        print(f"Removed {purged} old partial-date index records outside the active window", flush=True)
     existing, locations = load_existing()
     statuses = read_json(DATA_DIR / "collection-status.json", {})
     translations = read_json(DATA_DIR / "translations.json", {"model": None, "entries": {}})
@@ -379,6 +424,16 @@ def collect(mode: str, target: date, journal_id: str | None = None) -> int:
         for item in items:
             article = article_from_item(item, journal, discovered_at)
             if not article:
+                continue
+            key = article_key(article)
+            if source_period_before_window(article, retention_start(target)):
+                # Remove records previously pulled into the window by the old
+                # index-date inference behavior. Favorites remain independent.
+                for old_location in locations.get(key, set()):
+                    removed_from_days.setdefault(old_location, set()).add(key)
+                if key in existing:
+                    existing.pop(key, None)
+                    locations[key] = set()
                 continue
             candidates.append(article)
 
