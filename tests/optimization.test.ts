@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { bootstrap } from '../lib/db/index.ts';
@@ -13,6 +13,9 @@ import { processAI } from '../worker/tasks.ts';
 
  test('跨页保持整刊分组；翻译领取时重新检查过滤，避免无效 API 调用', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'paper-opt-')), s = bootstrap(join(dir, 'db.sqlite'));
+  const previousSecret = process.env.SESSION_SECRET_FILE;
+  process.env.SESSION_SECRET_FILE = join(dir, 'session-secret');
+  writeFileSync(process.env.SESSION_SECRET_FILE, 'isolated-test-session-secret-for-cursors');
   try {
     for (const id of [1, 2]) {
       s.run('INSERT INTO journal(id,name,metadata) VALUES(?,?,?)', [id, `Journal ${id}`, '{}']);
@@ -55,5 +58,5 @@ import { processAI } from '../worker/tasks.ts';
     assert.equal(s.one<{state:string}>('SELECT state FROM task WHERE id=?', [next.id])!.state, 'cancelled');
     refreshPaper(s, task.paper_id!);
     assert.equal(s.one<{inbox_visible:number}>('SELECT inbox_visible FROM paper_listing WHERE paper_id=?', [task.paper_id!])!.inbox_visible, 0);
-  } finally { s.close(); rmSync(dir, { recursive: true, force: true }); }
+  } finally { s.close(); if (previousSecret === undefined) delete process.env.SESSION_SECRET_FILE; else process.env.SESSION_SECRET_FILE = previousSecret; rmSync(dir, { recursive: true, force: true }); }
 });
