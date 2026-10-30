@@ -1,0 +1,11 @@
+{
+  "latencyMs": 400,
+  "downloadKiBps": 50,
+  "uploadKiBps": 20,
+  "mobileWidth": 390,
+  "listCount": 20,
+  "reconnectedFavorites": 2,
+  "overflow": false,
+  "pageErrors": [],
+  "elapsedMs": 12627
+}

@@ -1,0 +1,27 @@
+name: Bug report
+description: Report a reproducible problem without credentials or private data.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Include expected behavior and steps to reproduce. Do not attach API keys or databases.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Application version
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Deployment environment
+      description: Host OS, CPU architecture, Docker/Compose versions, and whether web/worker are healthy.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs
+      description: Remove credentials, private URLs, and personal data before posting.
+      render: text

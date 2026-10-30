@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": false, "incremental": false, "outDir": "dist", "rootDir": ".", "rewriteRelativeImportExtensions": true, "declaration": false },
+  "include": ["worker/**/*.ts", "lib/**/*.ts", "scripts/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

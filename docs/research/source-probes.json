@@ -1,0 +1,246 @@
+{
+  "verified_on": "2026-10-28",
+  "timezone": "Asia/Shanghai",
+  "queries": [
+    {
+      "issn": "0028-0836",
+      "url": "https://api.crossref.org/journals/0028-0836/works?filter=type%3Ajournal-article%2Cfrom-pub-date%3A2026-10-01%2Cuntil-pub-date%3A2026-10-28&rows=2&sort=published&order=desc",
+      "status": 200,
+      "total_results": 322,
+      "headers": {
+        "x-rate-limit-limit": "5",
+        "x-rate-limit-interval": "1s",
+        "x-concurrency-limit": "1"
+      },
+      "sample": [
+        {
+          "DOI": "10.1038/d41586-026-03384-6",
+          "title": [
+            "Mysterious flickering brain signals could help to unlock secrets of consciousness"
+          ],
+          "ISSN": [
+            "0028-0836",
+            "1476-4687"
+          ],
+          "published-online": {
+            "date-parts": [
+              [
+                2026,
+                10,
+                27
+              ]
+            ]
+          },
+          "published-print": null,
+          "published": {
+            "date-parts": [
+              [
+                2026,
+                10,
+                27
+              ]
+            ]
+          },
+          "type": "journal-article"
+        },
+        {
+          "DOI": "10.1038/d41586-026-03385-5",
+          "title": [
+            "Barn owls’ ancestors made a transatlantic flight"
+          ],
+          "ISSN": [
+            "0028-0836",
+            "1476-4687"
+          ],
+          "published-online": {
+            "date-parts": [
+              [
+                2026,
+                10,
+                27
+              ]
+            ]
+          },
+          "published-print": null,
+          "published": {
+            "date-parts": [
+              [
+                2026,
+                10,
+                27
+              ]
+            ]
+          },
+          "type": "journal-article"
+        }
+      ]
+    },
+    {
+      "issn": "0036-8075",
+      "url": "https://api.crossref.org/journals/0036-8075/works?filter=type%3Ajournal-article%2Cfrom-pub-date%3A2026-10-01%2Cuntil-pub-date%3A2026-10-28&rows=2&sort=published&order=desc",
+      "status": 200,
+      "total_results": 168,
+      "headers": {
+        "x-rate-limit-limit": "5",
+        "x-rate-limit-interval": "1s",
+        "x-concurrency-limit": "1"
+      },
+      "sample": [
+        {
+          "DOI": "10.1126/science.aeh3608",
+          "title": [
+            "Fiscal discipline without physical resilience"
+          ],
+          "ISSN": [
+            "0036-8075",
+            "1095-9203"
+          ],
+          "published-online": null,
+          "published-print": {
+            "date-parts": [
+              [
+                2026,
+                10,
+                22
+              ]
+            ]
+          },
+          "published": {
+            "date-parts": [
+              [
+                2026,
+                10,
+                22
+              ]
+            ]
+          },
+          "type": "journal-article"
+        },
+        {
+          "DOI": "10.1126/science.aen4281",
+          "title": [
+            "Across fields, AI finds solutions hiding in plain sight"
+          ],
+          "ISSN": [
+            "0036-8075",
+            "1095-9203"
+          ],
+          "published-online": null,
+          "published-print": {
+            "date-parts": [
+              [
+                2026,
+                10,
+                22
+              ]
+            ]
+          },
+          "published": {
+            "date-parts": [
+              [
+                2026,
+                10,
+                22
+              ]
+            ]
+          },
+          "type": "journal-article"
+        }
+      ]
+    },
+    {
+      "issn": "0162-8828",
+      "url": "https://api.crossref.org/journals/0162-8828/works?filter=type%3Ajournal-article%2Cfrom-pub-date%3A2026-10-01%2Cuntil-pub-date%3A2026-10-28&rows=2&sort=published&order=desc",
+      "status": 200,
+      "total_results": 161,
+      "headers": {
+        "x-rate-limit-limit": "5",
+        "x-rate-limit-interval": "1s",
+        "x-concurrency-limit": "1"
+      },
+      "sample": [
+        {
+          "DOI": "10.1109/tpami.2026.3692653",
+          "title": [
+            "Multi-Domain Feature Integration Based Trusted Partial Multi-View Incomplete Multi-Label Learning"
+          ],
+          "ISSN": [
+            "0162-8828",
+            "2160-9292",
+            "1939-3539"
+          ],
+          "published-online": null,
+          "published-print": {
+            "date-parts": [
+              [
+                2026,
+                10
+              ]
+            ]
+          },
+          "published": {
+            "date-parts": [
+              [
+                2026,
+                10
+              ]
+            ]
+          },
+          "type": "journal-article"
+        },
+        {
+          "DOI": "10.1109/tpami.2026.3688650",
+          "title": [
+            "A Survey on Autonomy-Induced Security Risks in Large Model-Based Agents"
+          ],
+          "ISSN": [
+            "0162-8828",
+            "2160-9292",
+            "1939-3539"
+          ],
+          "published-online": null,
+          "published-print": {
+            "date-parts": [
+              [
+                2026,
+                10
+              ]
+            ]
+          },
+          "published": {
+            "date-parts": [
+              [
+                2026,
+                10
+              ]
+            ]
+          },
+          "type": "journal-article"
+        }
+      ]
+    }
+  ],
+  "pagination_probe": {
+    "issn": "0028-0836",
+    "status_codes": [
+      200,
+      200
+    ],
+    "first_doi": "10.1038/d41586-026-03042-x",
+    "second_doi": "10.1038/d41586-026-03101-3",
+    "different_items": true,
+    "cursor_received": true,
+    "rows": 1,
+    "initial_url": "https://api.crossref.org/journals/0028-0836/works?filter=type%3Ajournal-article%2Cfrom-pub-date%3A2026-10-01%2Cuntil-pub-date%3A2026-10-28&rows=1&cursor=%2A"
+  },
+  "online_date_filter_probe": {
+    "url": "https://api.crossref.org/journals/0028-0836/works?filter=type%3Ajournal-article%2Cfrom-online-pub-date%3A2026-10-01%2Cuntil-online-pub-date%3A2026-10-28&rows=0",
+    "status": 200,
+    "total_results": 322
+  },
+  "observations": [
+    "An initial parallel probe received HTTP 429; sequential probes succeeded. Default to concurrency 1.",
+    "Some TPAMI records contain year/month only; do not invent a day.",
+    "Counts are a point-in-time observation; sample pages are not a complete corpus."
+  ]
+}

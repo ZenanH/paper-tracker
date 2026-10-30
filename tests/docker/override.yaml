@@ -1,0 +1,18 @@
+services:
+  init:
+    image: ${PAPER_TEST_IMAGE:-paper-tracker:ci-test}
+  web:
+    image: ${PAPER_TEST_IMAGE:-paper-tracker:ci-test}
+  worker:
+    image: ${PAPER_TEST_IMAGE:-paper-tracker:ci-test}
+    environment:
+      NODE_OPTIONS: --import=/audit/preload.mjs
+    volumes:
+      - ./tests/docker:/audit:ro
+  audit-source:
+    image: node:24.22.1-bookworm-slim
+    command: [node, /audit/source.mjs]
+    init: true
+    stop_grace_period: 1s
+    volumes:
+      - ./tests/docker:/audit:ro

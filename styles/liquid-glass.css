@@ -1,0 +1,57 @@
+/* Shared dark glass surfaces; app/layout.tsx fixes the theme before first paint. */
+:root {
+  --glass-radius: 12px;
+  --glass-radius-lg: 20px;
+  --glass-radius-full: 9999px;
+
+  --glass-duration: 180ms;
+  --glass-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+html[data-theme='dark'] {
+  color-scheme: dark;
+  --glass-tint-top: rgba(255, 255, 255, 0.06);
+  --glass-tint-bottom: rgba(179, 179, 179, 0.06);
+  --glass-tint-top-hover: rgba(255, 255, 255, 0.11);
+  --glass-tint-bottom-hover: rgba(179, 179, 179, 0.11);
+  --glass-rim-top: rgba(255, 255, 255, 0.5);
+  --glass-rim-hairline: rgba(255, 255, 255, 0.1);
+  --glass-rim-bottom: rgba(255, 255, 255, 0.06);
+
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+
+  --glass-menu-surface: #16161b;
+  --glass-menu-shadow: 0 16px 40px rgba(0, 0, 0, 0.55),
+    0 4px 12px rgba(0, 0, 0, 0.35);
+
+  --glass-modal-tint: rgba(0, 0, 0, 0.3);
+  --glass-scrim: rgba(0, 0, 0, 0.55);
+  --glass-page-bg: #0a0a0c;
+  --glass-page-fg: #ededf0;
+  --glass-mesh-violet: rgba(139, 92, 246, 0.26);
+  --glass-mesh-pink: rgba(236, 72, 153, 0.2);
+  --glass-mesh-cyan: rgba(6, 182, 212, 0.18);
+  --glass-mesh-corner-top: rgba(99, 102, 241, 0.14);
+  --glass-mesh-corner-bottom: rgba(79, 70, 229, 0.3);
+}
+.liquid-glass {
+  position: relative;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--glass-radius);
+  background: linear-gradient(180deg, var(--glass-tint-top), var(--glass-tint-bottom));
+  box-shadow:
+    var(--glass-shadow),
+    inset 0 1px 0 var(--glass-rim-top),
+    inset 0 0 0 1px var(--glass-rim-hairline),
+    inset 0 -1px 0 var(--glass-rim-bottom);
+  backdrop-filter: blur(3px) saturate(125%);
+  -webkit-backdrop-filter: blur(3px) saturate(125%);
+}
+.liquid-glass-menu {
+  background: color-mix(in srgb, var(--glass-menu-surface) 55%, transparent);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--glass-radius);
+  box-shadow: var(--glass-menu-shadow), inset 0 1px 0 var(--glass-rim-top);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+}

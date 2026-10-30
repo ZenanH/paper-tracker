@@ -1,0 +1,266 @@
+{
+  "version": 1,
+  "source": "User-provided journal.json (2026-10-26); categories only; removed entries excluded. Metrics come from the bundled catalog. Future Generation Computer Systems is recorded under its expanded catalog title.",
+  "journals": [
+    {
+      "name": "Communications Earth & Environment",
+      "catalogName": "Communications Earth & Environment",
+      "issns": [
+        "2662-4435"
+      ]
+    },
+    {
+      "name": "Nature Communications",
+      "catalogName": "Nature Communications",
+      "issns": [
+        "2041-1723"
+      ]
+    },
+    {
+      "name": "Science Advances",
+      "catalogName": "Science Advances",
+      "issns": [
+        "2375-2548"
+      ]
+    },
+    {
+      "name": "Acta Geotechnica",
+      "catalogName": "Acta Geotechnica",
+      "issns": [
+        "1861-1125",
+        "1861-1133"
+      ]
+    },
+    {
+      "name": "Archives of Computational Methods in Engineering",
+      "catalogName": "ARCHIVES OF COMPUTATIONAL METHODS IN ENGINEERING",
+      "issns": [
+        "1134-3060",
+        "1886-1784"
+      ]
+    },
+    {
+      "name": "Computer Methods in Applied Mechanics and Engineering",
+      "catalogName": "COMPUTER METHODS IN APPLIED MECHANICS AND ENGINEERING",
+      "issns": [
+        "0045-7825",
+        "1879-2138"
+      ]
+    },
+    {
+      "name": "Computer-Aided Civil and Infrastructure Engineering",
+      "catalogName": "COMPUTER-AIDED CIVIL AND INFRASTRUCTURE ENGINEERING",
+      "issns": [
+        "1093-9687",
+        "1467-8667"
+      ]
+    },
+    {
+      "name": "Computers and Geotechnics",
+      "catalogName": "COMPUTERS AND GEOTECHNICS",
+      "issns": [
+        "0266-352X",
+        "1873-7633"
+      ]
+    },
+    {
+      "name": "Engineering Applications of Artificial Intelligence",
+      "catalogName": "ENGINEERING APPLICATIONS OF ARTIFICIAL INTELLIGENCE",
+      "issns": [
+        "0952-1976",
+        "1873-6769"
+      ]
+    },
+    {
+      "name": "Engineering Applications of Computational Fluid Mechanics",
+      "catalogName": "Engineering Applications of Computational Fluid Mechanics",
+      "issns": [
+        "1994-2060",
+        "1997-003X"
+      ]
+    },
+    {
+      "name": "International Journal of Mechanical Sciences",
+      "catalogName": "INTERNATIONAL JOURNAL OF MECHANICAL SCIENCES",
+      "issns": [
+        "0020-7403",
+        "1879-2162"
+      ]
+    },
+    {
+      "name": "International Journal of Mining Science and Technology",
+      "catalogName": "International Journal of Mining Science and Technology",
+      "issns": [
+        "2095-2686",
+        "2212-6066"
+      ]
+    },
+    {
+      "name": "Journal of Advanced Research",
+      "catalogName": "Journal of Advanced Research",
+      "issns": [
+        "2090-1232",
+        "2090-1224"
+      ]
+    },
+    {
+      "name": "Journal of Earth Science",
+      "catalogName": "Journal of Earth Science",
+      "issns": [
+        "1674-487X",
+        "1867-111X"
+      ]
+    },
+    {
+      "name": "Science China Technological Sciences",
+      "catalogName": "Science China-Technological Sciences",
+      "issns": [
+        "1674-7321",
+        "1869-1900"
+      ]
+    },
+    {
+      "name": "ACM Transactions on Mathematical Software",
+      "catalogName": "ACM TRANSACTIONS ON MATHEMATICAL SOFTWARE",
+      "issns": [
+        "0098-3500",
+        "1557-7295"
+      ]
+    },
+    {
+      "name": "Applied Mathematical Modelling",
+      "catalogName": "APPLIED MATHEMATICAL MODELLING",
+      "issns": [
+        "0307-904X",
+        "1872-8480"
+      ]
+    },
+    {
+      "name": "Applied Mathematics and Computation",
+      "catalogName": "APPLIED MATHEMATICS AND COMPUTATION",
+      "issns": [
+        "0096-3003",
+        "1873-5649"
+      ]
+    },
+    {
+      "name": "Communications in Nonlinear Science and Numerical Simulation",
+      "catalogName": "Communications in Nonlinear Science and Numerical Simulation",
+      "issns": [
+        "1007-5704",
+        "1878-7274"
+      ]
+    },
+    {
+      "name": "Computational Mechanics",
+      "catalogName": "COMPUTATIONAL MECHANICS",
+      "issns": [
+        "0178-7675",
+        "1432-0924"
+      ]
+    },
+    {
+      "name": "Computer Physics Communications",
+      "catalogName": "COMPUTER PHYSICS COMMUNICATIONS",
+      "issns": [
+        "0010-4655",
+        "1879-2944"
+      ]
+    },
+    {
+      "name": "Computers & Structures",
+      "catalogName": "COMPUTERS & STRUCTURES",
+      "issns": [
+        "0045-7949",
+        "1879-2243"
+      ]
+    },
+    {
+      "name": "Engineering Analysis with Boundary Elements",
+      "catalogName": "ENGINEERING ANALYSIS WITH BOUNDARY ELEMENTS",
+      "issns": [
+        "0955-7997",
+        "1873-197X"
+      ]
+    },
+    {
+      "name": "Engineering with Computers",
+      "catalogName": "ENGINEERING WITH COMPUTERS",
+      "issns": [
+        "0177-0667",
+        "1435-5663"
+      ]
+    },
+    {
+      "name": "Future Generation Computer Systems",
+      "catalogName": "Future Generation Computer Systems-The International Journal of eScience",
+      "issns": [
+        "0167-739X",
+        "1872-7115"
+      ]
+    },
+    {
+      "name": "IEEE Transactions on Computers",
+      "catalogName": "IEEE TRANSACTIONS ON COMPUTERS",
+      "issns": [
+        "0018-9340",
+        "1557-9956"
+      ]
+    },
+    {
+      "name": "International Journal of Disaster Risk Science",
+      "catalogName": "International Journal of Disaster Risk Science",
+      "issns": [
+        "2095-0055",
+        "2192-6395"
+      ]
+    },
+    {
+      "name": "Journal of Computational Physics",
+      "catalogName": "JOURNAL OF COMPUTATIONAL PHYSICS",
+      "issns": [
+        "0021-9991",
+        "1090-2716"
+      ]
+    },
+    {
+      "name": "Journal of the Mechanics and Physics of Solids",
+      "catalogName": "JOURNAL OF THE MECHANICS AND PHYSICS OF SOLIDS",
+      "issns": [
+        "0022-5096",
+        "1873-4782"
+      ]
+    },
+    {
+      "name": "Mathematics and Computers in Simulation",
+      "catalogName": "MATHEMATICS AND COMPUTERS IN SIMULATION",
+      "issns": [
+        "0378-4754",
+        "1872-7166"
+      ]
+    },
+    {
+      "name": "Powder Technology",
+      "catalogName": "POWDER TECHNOLOGY",
+      "issns": [
+        "0032-5910",
+        "1873-328X"
+      ]
+    },
+    {
+      "name": "Results in Engineering",
+      "catalogName": "Results in Engineering",
+      "issns": [
+        "2590-1230"
+      ]
+    },
+    {
+      "name": "SAFETY SCIENCE",
+      "catalogName": "SAFETY SCIENCE",
+      "issns": [
+        "0925-7535",
+        "1879-1042"
+      ]
+    }
+  ]
+}

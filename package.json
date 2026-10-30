@@ -1,0 +1,42 @@
+{
+  "name": "paper-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.22.1 <25"
+  },
+  "packageManager": "pnpm@12.15.0",
+  "scripts": {
+    "setup": "node --import tsx scripts/setup.ts",
+    "catalog": "node --import tsx scripts/build-catalog.ts",
+    "dev": "node --import tsx scripts/dev.ts",
+    "dev:web": "next dev --hostname 127.0.0.1",
+    "worker": "node --import tsx worker/index.ts",
+    "bootstrap": "node --import tsx scripts/bootstrap.ts",
+    "build": "node --import tsx scripts/build-catalog.ts && next build && tsc -p tsconfig.worker.json",
+    "start": "next start --hostname 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "backup": "node --import tsx scripts/backup.ts",
+    "restore": "node --import tsx scripts/restore.ts",
+    "benchmark": "node --import tsx scripts/benchmark.ts",
+    "check:repository": "node scripts/check-repository.mjs",
+    "test:docker": "node scripts/ci-docker-smoke.mjs"
+  },
+  "dependencies": {
+    "next": "16.4.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "zod": "4.6.7",
+    "csv-parse": "7.0.3",
+    "undici": "8.12.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "typescript": "7.0.2",
+    "tsx": "4.23.15"
+  }
+}

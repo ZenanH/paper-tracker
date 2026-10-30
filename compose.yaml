@@ -1,0 +1,46 @@
+name: paper-tracker
+x-app: &app
+  image: paper-tracker:1.0-local
+  build: .
+  user: "${PUID:-1000}:${PGID:-1000}"
+  environment: &environment
+    APP_URL: ${APP_URL:-http://localhost:3000}
+    AI_ALLOWED_ORIGINS: ${AI_ALLOWED_ORIGINS:-}
+    CROSSREF_MAILTO: ${CROSSREF_MAILTO:-}
+  volumes:
+    - ${PAPER_TRACKER_DATA:-./paper-tracker-data}/data:/app/instance/data
+    - ${PAPER_TRACKER_DATA:-./paper-tracker-data}/secrets:/app/instance/secrets:ro
+  init: true
+services:
+  init:
+    <<: *app
+    command: ["node", "dist/scripts/bootstrap.js"]
+    restart: "no"
+  web:
+    <<: *app
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-3000}:3000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+  worker:
+    <<: *app
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    command: ["node", "dist/worker/index.js"]
+    restart: unless-stopped
+    stop_grace_period: 120s
+    healthcheck:
+      test: ["CMD", "node", "dist/scripts/worker-health.js"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3

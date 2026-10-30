@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      arm64:
+        description: Also run native Linux ARM64 Docker validation (requires an available ARM runner)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  checks:
+    name: Source, data, tests and production build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Verify upload boundaries
+        run: node scripts/check-repository.mjs
+      - name: Verify pinned journal snapshots offline
+        run: python3 scripts/verify_journal_data.py
+      - name: Install pinned dependencies
+        run: |
+          npm install --global "$(node -p 'require("./package.json").packageManager')"
+          pnpm install --frozen-lockfile
+      - run: pnpm catalog
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  docker:
+    name: Linux AMD64 container validation
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Build local validation image
+        run: docker build --tag paper-tracker:ci-test .
+      - name: Prepare non-root host permissions
+        run: node tests/docker/prepare-check.mjs
+      - name: Run isolated Compose lifecycle and backup verification
+        run: node scripts/ci-docker-smoke.mjs --no-build
+
+  docker-arm64:
+    name: Linux ARM64 container validation (manual)
+    if: github.event_name == 'workflow_dispatch' && inputs.arm64
+    needs: checks
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - run: docker build --tag paper-tracker:ci-test .
+      - run: node tests/docker/prepare-check.mjs
+      - run: node scripts/ci-docker-smoke.mjs --no-build
+
+  publish:
+    name: Publish verified Linux AMD64 image
+    needs: [checks, docker]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: paper-tracker-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Authenticate to GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Build and publish immutable version
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          VERSION=$(python3 -c 'import json; p=json.load(open("package.json")); print(".".join(p["version"].split(".")[:2]))')
+          if docker manifest inspect "$IMAGE:$VERSION" > /tmp/manifest.json 2>/tmp/manifest-error; then
+            echo "Version $VERSION already exists; refusing to overwrite."
+            exit 1
+          fi
+          if ! grep -Eqi 'manifest unknown|not found|name unknown' /tmp/manifest-error; then
+            cat /tmp/manifest-error
+            exit 1
+          fi
+          docker build --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" --label "org.opencontainers.image.revision=$GITHUB_SHA" --label "org.opencontainers.image.version=$VERSION" --tag "$IMAGE:$VERSION" .
+          docker push "$IMAGE:$VERSION"
+          echo "Published $IMAGE:$VERSION (linux/amd64)" >> "$GITHUB_STEP_SUMMARY"

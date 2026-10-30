@@ -1,0 +1,4 @@
+services:
+  init:
+    environment:
+      SESSION_SECRET_FILE: /missing/required-secret

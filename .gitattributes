@@ -1,0 +1,7 @@
+* text=auto eol=lf
+*.woff2 binary
+*.png binary
+*.jpg binary
+*.sqlite binary
+# Preserve pinned upstream snapshot bytes; manifest hashes verify them verbatim.
+data/journals/raw/*.csv -text
