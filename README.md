@@ -1,12 +1,14 @@
-# Paper-tracker
+<div align="center">
 
-<p align="center">
-  <img src="./public/logo.svg" alt="Paper-tracker logo" width="80" height="80">
-</p>
+<h1>Paper-tracker</h1>
 
-A private, self-hosted workspace for tracking journals and research papers.
+<img src="./public/logo.svg" alt="Paper-tracker logo" width="80" height="80">
 
-Paper-tracker is designed for one trusted deployment per user. Run it on a trusted private network or Tailscale; network access controls protect the instance. The app opens directly into the workspace and does not provide a public sign-up service or an administrator login page.
+<p><strong>A private, self-hosted workspace for tracking journals and research papers.</strong></p>
+
+<p>Paper-tracker is designed for one trusted deployment per user. Run it on a trusted private network or Tailscale; network access controls protect the instance. The app opens directly into the workspace and does not provide a public sign-up service or an administrator login page.</p>
+
+</div>
 
 ## Quick start
 
@@ -60,7 +62,7 @@ pnpm test:docker
 
 ## CI and container images
 
-GitHub Actions runs source and data checks, tests, and production builds. On every push and pull request, native Linux AMD64 and ARM64 runners build the container and run the Compose lifecycle and backup checks. A successful push to `main` publishes architecture-specific image tags and a shared multi-platform version tag to GHCR, for example `ghcr.io/zenanh/paper-tracker:1.1`.
+GitHub Actions runs source and data checks, tests, and production builds. On every push and pull request, native Linux AMD64 and ARM64 runners build the container and run the Compose lifecycle and backup checks. A successful push to `main` publishes architecture-specific image tags and a shared multi-platform version tag to GHCR, for example `ghcr.io/zenanh/paper-tracker:1.2`.
 
 Release tags are immutable and come from `package.json`. Releases advance from `1.0` to `1.1`, `1.2`, and onward; failed, unpublished releases reuse their version. The shared version tag resolves to both `linux/amd64` and `linux/arm64`. Windows containers are not supported.
 
