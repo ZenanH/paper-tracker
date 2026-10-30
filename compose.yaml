@@ -1,6 +1,6 @@
 name: paper-tracker
 x-app: &app
-  image: paper-tracker:1.0-local
+  image: paper-tracker:local
   build: .
   user: "${PUID:-1000}:${PGID:-1000}"
   environment: &environment

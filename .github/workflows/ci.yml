@@ -4,18 +4,13 @@ on:
   push:
   pull_request:
   workflow_dispatch:
-    inputs:
-      arm64:
-        description: Also run native Linux ARM64 Docker validation (requires an available ARM runner)
-        type: boolean
-        default: false
 
 permissions:
   contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   NEXT_TELEMETRY_DISABLED: '1'
@@ -47,10 +42,23 @@ jobs:
       - run: pnpm build
 
   docker:
-    name: Linux AMD64 container validation
+    name: Linux ${{ matrix.name }} container validation
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
     needs: checks
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: AMD64
+            arch: amd64
+            runner: ubuntu-24.04
+          - name: ARM64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -60,18 +68,38 @@ jobs:
           node-version-file: .node-version
           package-manager-cache: false
       - name: Build local validation image
-        run: docker build --tag paper-tracker:ci-test .
+        run: |
+          set -euo pipefail
+          VERSION=$(python3 -c 'import json; p=json.load(open("package.json")); print(".".join(p["version"].split(".")[:2]))')
+          docker build \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.version=$VERSION" \
+            --tag paper-tracker:ci-test .
       - name: Prepare non-root host permissions
         run: node tests/docker/prepare-check.mjs
       - name: Run isolated Compose lifecycle and backup verification
         run: node scripts/ci-docker-smoke.mjs --no-build
 
-  docker-arm64:
-    name: Linux ARM64 container validation (manual)
-    if: github.event_name == 'workflow_dispatch' && inputs.arm64
+  publish-arch:
+    name: Validate and stage Linux ${{ matrix.name }} image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: checks
-    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: AMD64
+            arch: amd64
+            runner: ubuntu-24.04
+          - name: ARM64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -80,13 +108,36 @@ jobs:
         with:
           node-version-file: .node-version
           package-manager-cache: false
-      - run: docker build --tag paper-tracker:ci-test .
-      - run: node tests/docker/prepare-check.mjs
-      - run: node scripts/ci-docker-smoke.mjs --no-build
+      - name: Build release candidate image
+        run: |
+          set -euo pipefail
+          VERSION=$(python3 -c 'import json; p=json.load(open("package.json")); print(".".join(p["version"].split(".")[:2]))')
+          docker build \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.version=$VERSION" \
+            --tag paper-tracker:ci-test .
+      - name: Prepare non-root host permissions
+        run: node tests/docker/prepare-check.mjs
+      - name: Run isolated Compose lifecycle and backup verification
+        run: node scripts/ci-docker-smoke.mjs --no-build
+      - name: Publish validated platform candidate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARCH: ${{ matrix.arch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          VERSION=$(python3 -c 'import json; p=json.load(open("package.json")); print(".".join(p["version"].split(".")[:2]))')
+          CANDIDATE_TAG="$IMAGE:$VERSION-build-$GITHUB_SHA-$ARCH"
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker tag paper-tracker:ci-test "$CANDIDATE_TAG"
+          docker push "$CANDIDATE_TAG"
 
   publish:
-    name: Publish verified Linux AMD64 image
-    needs: [checks, docker]
+    name: Publish verified multi-platform image
+    needs: [checks, publish-arch]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
@@ -101,7 +152,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-      - name: Build and publish immutable version
+      - name: Publish immutable multi-platform version
         shell: bash
         run: |
           set -euo pipefail
@@ -111,10 +162,28 @@ jobs:
             echo "Version $VERSION already exists; refusing to overwrite."
             exit 1
           fi
-          if ! grep -Eqi 'manifest unknown|not found|name unknown' /tmp/manifest-error; then
+          if ! grep -Eqi 'manifest unknown|no such manifest|not found|name unknown' /tmp/manifest-error; then
             cat /tmp/manifest-error
             exit 1
           fi
-          docker build --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" --label "org.opencontainers.image.revision=$GITHUB_SHA" --label "org.opencontainers.image.version=$VERSION" --tag "$IMAGE:$VERSION" .
-          docker push "$IMAGE:$VERSION"
-          echo "Published $IMAGE:$VERSION (linux/amd64)" >> "$GITHUB_STEP_SUMMARY"
+          for ARCH in amd64 arm64; do
+            CANDIDATE_TAG="$IMAGE:$VERSION-build-$GITHUB_SHA-$ARCH"
+            docker pull --platform "linux/$ARCH" "$CANDIDATE_TAG"
+            ACTUAL_PLATFORM=$(docker image inspect --format='{{.Os}}/{{.Architecture}}' "$CANDIDATE_TAG")
+            ACTUAL_REVISION=$(docker image inspect --format='{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$CANDIDATE_TAG")
+            if [[ "$ACTUAL_PLATFORM" != "linux/$ARCH" || "$ACTUAL_REVISION" != "$GITHUB_SHA" ]]; then
+              echo "Candidate $CANDIDATE_TAG has platform $ACTUAL_PLATFORM and revision $ACTUAL_REVISION."
+              exit 1
+            fi
+            PLATFORM_TAG="$IMAGE:$VERSION-$ARCH"
+            docker tag "$CANDIDATE_TAG" "$PLATFORM_TAG"
+            docker push "$PLATFORM_TAG"
+          done
+          docker buildx imagetools create \
+            --tag "$IMAGE:$VERSION" \
+            "$IMAGE:$VERSION-amd64" \
+            "$IMAGE:$VERSION-arm64"
+          docker buildx imagetools inspect --raw "$IMAGE:$VERSION" > /tmp/release-manifest.json
+          jq -e '[.manifests[].platform | "\(.os)/\(.architecture)"] | unique | contains(["linux/amd64", "linux/arm64"])' /tmp/release-manifest.json
+          docker buildx imagetools inspect "$IMAGE:$VERSION" | tee /tmp/release-manifest-summary.txt
+          cat /tmp/release-manifest-summary.txt >> "$GITHUB_STEP_SUMMARY"
