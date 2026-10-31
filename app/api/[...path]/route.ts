@@ -7,7 +7,7 @@ import { journalSummary, updateJournalCatalog, builtinInfo, followJournal, listJ
 import { verifyJournal } from '../../../lib/sources/crossref.ts';
 import { archiveJournal, favoritePaper, listPapers, refreshPaper, undoArchive } from '../../../lib/papers.ts';
 import { publicSettings, saveSettings, testAI } from '../../../lib/ai.ts';
-import { enqueueSync, retryTasks } from '../../../lib/sync.ts';
+import { enqueueSync } from '../../../lib/sync.ts';
 import { statusSnapshot } from '../../../lib/status.ts';
 import { nextScheduled } from '../../../lib/time.ts';
 import { ExternalError } from '../../../lib/network.ts';
@@ -99,7 +99,6 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
       return jsonResponse(request, statusSnapshot(s, []));
     }
     if (path === 'sync' && method === 'POST') return jsonResponse(request, { ...enqueueSync(s, undefined, undefined, Date.now(), true), summary: statusSnapshot(s, []) });
-    if (path === 'tasks/retry' && method === 'POST') return jsonResponse(request, retryTasks(s));
     if (path === 'status' && method === 'GET') { const ids = (url.searchParams.get('scope') || '').split(',').filter(v => /^\d{1,18}$/.test(v)).slice(0, 20); return cached(statusSnapshot(s, ids), 8 * 1024); }
     throw new AppError('接口不存在。', 404, 'not_found');
   } catch (error) {

@@ -10,10 +10,10 @@ export function enqueueSync(s: Store, targetIds?: string[], scheduleKey?: string
     const i = s.installation();
     if (scheduleKey) { const old = s.one<{ id: number }>('SELECT id FROM sync_run WHERE schedule_key=?', [scheduleKey]); if (old) return { id: String(old.id), reused: true }; }
     if (fresh) {
-      s.run("UPDATE task SET state='queued',error_code=NULL,attempts=0,next_attempt_at=0 WHERE kind IN ('filter','translate','projection') AND state='cancelled' AND error_code='user_stopped'");
+      s.run("UPDATE task SET state='queued',error_code=NULL,attempts=0,next_attempt_at=0 WHERE kind IN ('filter','translate','projection') AND ((state='cancelled' AND error_code='ai_connection_failed') OR state IN ('failed','retry'))");
       const running = s.one<{ run_id: number }>("SELECT run_id FROM task WHERE kind='fetch' AND state IN ('queued','running','retry') AND run_id IS NOT NULL LIMIT 1");
       if (running) return { id: String(running.run_id), reused: true };
-      // Explicit Update starts a new round; Retry preserves the previous checkpoints.
+      // Update is the single recovery entry point for source and AI work.
       s.run("UPDATE task SET state='cancelled',fence=fence+1 WHERE kind='fetch' AND state='failed'");
       s.run("UPDATE sync_run SET state='cancelled',completed_at=? WHERE state IN ('queued','running','partial','failed')", [now]);
     }
@@ -69,11 +69,5 @@ export function finishRuns(s: Store, now = Date.now()) {
         s.run('UPDATE installation SET initial_sync_completed_at=? WHERE id=1 AND initial_sync_completed_at IS NULL', [now]);
       }
     }
-  });
-}
-export function retryTasks(s: Store) {
-  return s.transaction(() => {
-    const n = s.run("UPDATE task SET state='queued',attempts=0,next_attempt_at=0,error_code=NULL WHERE state IN ('failed','retry')").changes;
-    s.touch(); return { count: Number(n) };
   });
 }

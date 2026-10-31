@@ -29,6 +29,28 @@ test('重建投影可恢复规则切换取消的任务，但不能恢复用户 S
  } finally {s.close();rmSync(dir,{recursive:true,force:true});}
 });
 
+test('Update 恢复可重试的 AI 任务，但保留用户主动停止的任务', async () => {
+ const { enqueueSync } = await import('../lib/sync.ts');
+ const dir=mkdtempSync(join(tmpdir(),'paper-update-recovery-')),s=bootstrap(join(dir,'db.sqlite'));
+ try {
+  s.run("INSERT INTO journal(id,name,metadata) VALUES(1,'Test','{}')");
+  s.run('INSERT INTO journal_follow(journal_id,followed_at) VALUES(1,0)');
+  s.run('INSERT INTO journal_issn(journal_id,issn) VALUES(1,?)', ['0000-0000']);
+  s.run('INSERT INTO journal_stats(journal_id) VALUES(1)');
+  for (const [state, error, label] of [['failed', 'ai_http_500', 'failed'], ['retry', 'ai_timeout', 'retry'], ['cancelled', 'ai_connection_failed', 'ai_connection_failed'], ['cancelled', 'user_stopped', 'stopped']] as const) {
+   s.run("INSERT INTO task(journal_id,kind,dedupe_key,payload,state,error_code,created_at,updated_at) VALUES(1,'translate',?,?,?, ?,0,0)", [label, '{}', state, error]);
+  }
+  enqueueSync(s, undefined, undefined, Date.now(), true);
+  const rows = s.all<{ dedupe_key:string; state:string }>("SELECT dedupe_key,state FROM task WHERE kind='translate' ORDER BY id");
+  assert.deepEqual(rows, [
+   { dedupe_key: 'failed', state: 'queued' },
+   { dedupe_key: 'retry', state: 'queued' },
+   { dedupe_key: 'ai_connection_failed', state: 'queued' },
+   { dedupe_key: 'stopped', state: 'cancelled' },
+  ]);
+ } finally { s.close(); rmSync(dir,{recursive:true,force:true}); }
+});
+
 test('删除 AI key 释放更新锁，重新配置续做且旧请求被 fencing 拒绝', async () => {
  const { saveSettings, aiSettings } = await import('../lib/ai.ts');
  const { leaseTask, commitTask } = await import('../lib/sync.ts');

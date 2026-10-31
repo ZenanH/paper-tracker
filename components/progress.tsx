@@ -4,8 +4,7 @@ import type { Stage, StageStatus } from '../lib/status';
 export type Status = { filteredCount: number; titleCount: number; lastUpdateAt: number | null; contentVersion: number; progressVersion: number; workerAlive: boolean; updating: boolean; aiConfigured: boolean; run: { id: string; kind: string; from: number; until: number; state: string } | null; stages: Stage[]; active: boolean; source: { returned: number; added: number; duplicate: number; updated: number } | null; extraTasks: number; nextScheduledAt: number; journals: { id: string; version: number; count: number; favorites: number }[] };
 const labels: Record<StageStatus, string> = { queued: 'Queued', running: 'Running', retry: 'Retrying', blocked: 'Set up AI', succeeded: 'Done', partial: 'Failed', failed: 'Failed', cancelled: 'Canceled', not_needed: 'Skipped' };
 const stageNames: Record<string, string> = { journal: 'Journals', fetch: 'Papers', filter: 'Filter', translate: 'Translate' };
-export function Progress({ status, stale, lastChecked, retry, actions, hideJournals = false }: { status: Status | null; stale: boolean; lastChecked: number | null; retry: () => void; actions?: ReactNode; hideJournals?: boolean }) {
-  const retryable = status?.stages.some(s => ['failed', 'partial', 'retry'].includes(s.status));
+export function Progress({ status, stale, lastChecked, actions, hideJournals = false }: { status: Status | null; stale: boolean; lastChecked: number | null; actions?: ReactNode; hideJournals?: boolean }) {
   return <section className="activity glass-lite compact-activity" aria-label="Processing progress" title={stale ? 'Connection lost' : lastChecked ? `Last checked ${new Date(lastChecked).toLocaleTimeString('en-US')}` : 'Connecting'}>
     <div className={`compact-stages ${hideJournals ? 'compact-stages-three' : ''}`}>
       {!status?.run ? <span className="muted">{status ? 'Ready' : 'Connecting…'}</span> : status.stages.filter(s => !hideJournals || s.key !== 'journal').map(s => {
@@ -19,7 +18,7 @@ export function Progress({ status, stale, lastChecked, retry, actions, hideJourn
         </div>;
       })}
     </div>
-    <div className="compact-activity-actions">{actions}<button className="button secondary" disabled={!retryable || stale} onClick={retry}>Retry</button></div>
+    <div className="compact-activity-actions">{actions}</div>
     {stale && <span className="activity-offline error-text" role="status">Offline</span>}
   </section>;
 }
