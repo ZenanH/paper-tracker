@@ -26,7 +26,7 @@ docker compose --env-file paper-tracker-data/compose.env up -d --build
 
 Never delete the mounted data or secrets directories during an upgrade. The web app and worker share a local SQLite database; do not move it to a cross-host network filesystem.
 
-The web service binds to `127.0.0.1:3000` by default. For trusted Tailscale access, set `BIND_ADDRESS` to the host's Tailscale IP and `APP_URL` to the origin users actually open. Write-request origin checks rely on this value. Recreate the services after changing it; do not expose every host interface by default.
+AI requests use the regular Compose bridge network. DNS answers made entirely of VPN Fake-IP addresses in `198.18.0.0/15` are recognized and mapped from IPv4-mapped IPv6 to IPv4 before connecting; mixed or other private IP answers remain blocked unless the exact origin is listed in `AI_ALLOWED_ORIGINS`. The web service binds to `127.0.0.1:3000` by default. For trusted Tailscale access, set `BIND_ADDRESS` to the host's Tailscale IP and `APP_URL` to the origin users actually open. Write-request origin checks rely on this value. Recreate the services after changing it; do not expose every host interface by default.
 
 An isolated deployment check can use its own data directory and port:
 

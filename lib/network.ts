@@ -8,15 +8,41 @@ import { AppError } from './security.ts';
 const privateIPs = new BlockList();
 for (const [ip, bits] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.168.0.0', 16], ['192.0.0.0', 24], ['192.0.2.0', 24], ['198.18.0.0', 15], ['198.51.100.0', 24], ['203.0.113.0', 24], ['224.0.0.0', 4], ['240.0.0.0', 4]] as const) privateIPs.addSubnet(ip, bits, 'ipv4');
 for (const [ip, bits] of [['::', 128], ['::1', 128], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8], ['2001:db8::', 32], ['64:ff9b::', 96], ['2002::', 16]] as const) privateIPs.addSubnet(ip, bits, 'ipv6');
-export function publicIP(address: string): boolean {
+const syntheticIPs = new BlockList();
+syntheticIPs.addSubnet('198.18.0.0', 15, 'ipv4');
+function embeddedIPv4(address: string): string | null {
+  if (isIP(address) === 4) return address;
   const raw = address.toLowerCase();
-  if (raw.startsWith('::ffff:')) {
-    const tail = raw.slice(7);
-    if (isIP(tail) === 4) return !privateIPs.check(tail, 'ipv4');
-    return false;
+  if (!raw.startsWith('::ffff:')) return null;
+  const parts = raw.slice(7).split(':');
+  if (parts.length === 3 && parts[0] === '0') parts.shift();
+  if (parts.length === 1 && isIP(parts[0]) === 4) return parts[0];
+  if (parts.length !== 2 || !parts.every(part => /^[\da-f]{1,4}$/.test(part))) return null;
+  const high = Number.parseInt(parts[0], 16), low = Number.parseInt(parts[1], 16);
+  return `${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`;
+}
+function isSyntheticIP(address: string): boolean {
+  const ipv4 = embeddedIPv4(address);
+  return !!ipv4 && syntheticIPs.check(ipv4, 'ipv4');
+}
+export function publicIP(address: string): boolean {
+  if (address.toLowerCase().startsWith('::ffff:')) {
+    const ipv4 = embeddedIPv4(address);
+    return !!ipv4 && !privateIPs.check(ipv4, 'ipv4');
   }
   const family = isIP(address);
   return family !== 0 && !privateIPs.check(address, family === 6 ? 'ipv6' : 'ipv4');
+}
+export function safeAIAddresses(hostname: string, addresses: { address: string; family: number }[], allowed = false) {
+  if (!addresses.length) return null;
+  if (allowed || addresses.every(entry => publicIP(entry.address))) return addresses;
+  if (isIP(hostname.replace(/^\[|\]$/g, '')) || !addresses.every(entry => isSyntheticIP(entry.address))) return null;
+  const unique = new Map<string, { address: string; family: number }>();
+  for (const entry of addresses) {
+    const address = embeddedIPv4(entry.address);
+    if (address) unique.set(address, { address, family: 4 });
+  }
+  return unique.size ? [...unique.values()] : null;
 }
 export function aiURL(base: string): URL {
   let url: URL;
@@ -60,9 +86,10 @@ export async function aiRequest(base: string, key: string, body: unknown, signal
   const release = await acquireAI(signal);
   const agent = new Agent({ connect: { lookup(hostname, options, callback) {
     lookup(hostname, { all: true }).then(addresses => {
-      if (!addresses.length || (!allowed && addresses.some(a => !publicIP(a.address)))) { callback(new Error('AI 目标地址未获授权。'), '', 4); return; }
-      if (options.all) callback(null, addresses);
-      else { const addr = addresses.find(a => !options.family || a.family === options.family) || addresses[0]; callback(null, addr.address, addr.family); }
+      const safe = safeAIAddresses(hostname, addresses, allowed);
+      if (!safe) { callback(new Error('AI 目标地址未获授权。'), '', 4); return; }
+      if (options.all) callback(null, safe);
+      else { const addr = safe.find(a => !options.family || a.family === options.family) || safe[0]; callback(null, addr.address, addr.family); }
     }, error => callback(error, '', 4));
   } } });
   try {
