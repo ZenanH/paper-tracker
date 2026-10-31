@@ -41,7 +41,7 @@ test('Update 恢复可重试的 AI 任务，但保留用户主动停止的任务
    s.run("INSERT INTO task(journal_id,kind,dedupe_key,payload,state,error_code,created_at,updated_at) VALUES(1,'translate',?,?,?, ?,0,0)", [label, '{}', state, error]);
   }
   enqueueSync(s, undefined, undefined, Date.now(), true);
-  const rows = s.all<{ dedupe_key:string; state:string }>("SELECT dedupe_key,state FROM task WHERE kind='translate' ORDER BY id");
+  const rows = s.all<{ dedupe_key:string; state:string }>("SELECT dedupe_key,state FROM task WHERE kind='translate' ORDER BY id").map(row => ({ dedupe_key: row.dedupe_key, state: row.state }));
   assert.deepEqual(rows, [
    { dedupe_key: 'failed', state: 'queued' },
    { dedupe_key: 'retry', state: 'queued' },
